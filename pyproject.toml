@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genesis-os"
+version = "0.1.0"
+description = "Genesis AI operating system kernel."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Genesis" }]
+license = { text = "Proprietary" }
+dependencies = []
+
+[project.scripts]
+genesis = "genesis.app.kernel.main:main"
+
+[tool.setuptools.packages.find]
+include = ["genesis*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
