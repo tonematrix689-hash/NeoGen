@@ -86,25 +86,20 @@ class GenesisRuntime:
     @property
     def started(self) -> bool:
         """Return whether the runtime has completed startup."""
-
         return self._started
 
     @property
     def state(self) -> RuntimeState:
         """Return the current runtime state."""
-
         return self._state
 
     def register_service(self, descriptor: ServiceDescriptor) -> None:
         """Register a service atomically before runtime startup begins."""
-
         if self._state is not RuntimeState.INITIALIZED:
             raise RuntimeStateError(
                 f"Cannot register services while runtime state is {self._state.value!r}."
             )
 
-        # Validate lifecycle registration first. It is the only registration step
-        # that can reject duplicates or invalid dependency graphs.
         self.lifecycle.register(
             descriptor.name,
             descriptor.service,
@@ -125,7 +120,6 @@ class GenesisRuntime:
 
     async def start(self) -> None:
         """Start the Genesis kernel."""
-
         if self._state is not RuntimeState.INITIALIZED:
             raise RuntimeStateError(f"Cannot start Genesis runtime from state {self._state.value!r}.")
 
@@ -140,15 +134,14 @@ class GenesisRuntime:
             self._started = True
             self._state = RuntimeState.RUNNING
             await self.event_bus.publish(Event("kernel.started", {"version": __version__}))
-        except Exception:
-            if self._started:
-                try:
-                    await asyncio.wait_for(
-                        self.lifecycle.stop_all(),
-                        timeout=self.settings.shutdown_timeout_seconds,
-                    )
-                except Exception:
-                    self.logger.exception("Failed to roll back services after startup failure")
+        except BaseException:
+            try:
+                await asyncio.wait_for(
+                    self.lifecycle.stop_all(),
+                    timeout=self.settings.shutdown_timeout_seconds,
+                )
+            except BaseException:
+                self.logger.exception("Failed to roll back services after startup failure")
             self._started = False
             self._state = RuntimeState.FAILED
             self.logger.exception("Genesis kernel failed to start")
@@ -156,7 +149,6 @@ class GenesisRuntime:
 
     async def stop(self) -> None:
         """Stop the Genesis kernel while preserving truthful failure state."""
-
         if not self._started:
             return
 
@@ -183,7 +175,6 @@ class GenesisRuntime:
         else:
             self._started = False
             self._state = RuntimeState.STOPPED if first_error is None else RuntimeState.FAILED
-
             try:
                 await self.event_bus.publish(Event("kernel.stopped", {"version": __version__}))
             except BaseException as exc:
@@ -211,7 +202,6 @@ class GenesisRuntime:
 
     def snapshot(self) -> RuntimeSnapshot:
         """Return runtime diagnostics."""
-
         return RuntimeSnapshot(
             app_name=self.settings.app_name,
             version=__version__,
