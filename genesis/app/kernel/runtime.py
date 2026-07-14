@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from enum import StrEnum
 import logging
 from types import TracebackType
 
@@ -20,6 +21,26 @@ from genesis.app.kernel.logger import configure_logging
 from genesis.app.kernel.registry import RegistryEntry, ServiceRegistry
 from genesis.app.kernel.settings import GenesisSettings
 from genesis.app.kernel.version import __version__
+
+
+class RuntimeState(StrEnum):
+    """Observable runtime lifecycle state."""
+
+    INITIALIZED = "initialized"
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceDescriptor:
+    """Stable description of a service exposed by the runtime."""
+
+    name: str
+    service_type: str
+    registered: bool = True
 
 
 class RuntimeStateError(RuntimeError):
@@ -35,6 +56,7 @@ class RuntimeSnapshot:
     environment: str
     started: bool
     services: tuple[str, ...]
+    state: RuntimeState
 
 
 class GenesisRuntime:
@@ -52,37 +74,53 @@ class GenesisRuntime:
         self.registry = ServiceRegistry(logger=logging.getLogger("genesis.kernel.registry"))
         self.lifecycle = LifecycleManager(logger=logging.getLogger("genesis.kernel.lifecycle"))
         self.health = HealthMonitor(logger=logging.getLogger("genesis.kernel.health"))
-        self._started = False
+        self._state = RuntimeState.INITIALIZED
         self._register_kernel_services()
 
     @property
     def started(self) -> bool:
         """Return whether the runtime has completed startup."""
 
-        return self._started
+        return self._state is RuntimeState.RUNNING
+
+    @property
+    def state(self) -> RuntimeState:
+        """Return the current runtime lifecycle state."""
+
+        return self._state
 
     async def start(self) -> None:
         """Start the Genesis kernel."""
 
-        if self._started:
+        if self.started or self._state is RuntimeState.STARTING:
             raise RuntimeStateError("Genesis runtime is already started.")
-        self.settings.ensure_directories()
-        self.logger.info("Starting Genesis kernel %s", __version__)
-        await asyncio.wait_for(self.lifecycle.start_all(), timeout=self.settings.startup_timeout_seconds)
-        self._started = True
-        await self.event_bus.publish(Event("kernel.started", {"version": __version__}))
+        self._state = RuntimeState.STARTING
+        try:
+            self.settings.ensure_directories()
+            self.logger.info("Starting Genesis kernel %s", __version__)
+            await asyncio.wait_for(self.lifecycle.start_all(), timeout=self.settings.startup_timeout_seconds)
+            self._state = RuntimeState.RUNNING
+            await self.event_bus.publish(Event("kernel.started", {"version": __version__}))
+        except Exception:
+            self._state = RuntimeState.FAILED
+            raise
 
     async def stop(self) -> None:
         """Stop the Genesis kernel."""
 
-        if not self._started:
+        if not self.started:
             return
-        self.logger.info("Stopping Genesis kernel")
-        await self.event_bus.publish(Event("kernel.stopping", {"version": __version__}))
-        await asyncio.wait_for(self.lifecycle.stop_all(), timeout=self.settings.shutdown_timeout_seconds)
-        self._started = False
-        await self.event_bus.publish(Event("kernel.stopped", {"version": __version__}))
-        await self.event_bus.close()
+        self._state = RuntimeState.STOPPING
+        try:
+            self.logger.info("Stopping Genesis kernel")
+            await self.event_bus.publish(Event("kernel.stopping", {"version": __version__}))
+            await asyncio.wait_for(self.lifecycle.stop_all(), timeout=self.settings.shutdown_timeout_seconds)
+            await self.event_bus.publish(Event("kernel.stopped", {"version": __version__}))
+            await self.event_bus.close()
+            self._state = RuntimeState.STOPPED
+        except Exception:
+            self._state = RuntimeState.FAILED
+            raise
 
     async def __aenter__(self) -> "GenesisRuntime":
         await self.start()
@@ -103,9 +141,19 @@ class GenesisRuntime:
             app_name=self.settings.app_name,
             version=__version__,
             environment=self.settings.environment,
-            started=self._started,
+            started=self.started,
             services=self.container.keys(),
+            state=self._state,
         )
+
+    def describe_services(self) -> tuple[ServiceDescriptor, ...]:
+        """Return stable descriptors for all registered container services."""
+
+        descriptors: list[ServiceDescriptor] = []
+        for name in self.container.keys():
+            service = self.container.resolve(name)
+            descriptors.append(ServiceDescriptor(name=name, service_type=type(service).__name__))
+        return tuple(descriptors)
 
     def _register_kernel_services(self) -> None:
         self.container.register_instance("settings", self.settings)
@@ -128,8 +176,8 @@ class GenesisRuntime:
             "kernel",
             lambda: HealthReport(
                 name="kernel",
-                status=HealthStatus.HEALTHY if self._started else HealthStatus.DEGRADED,
-                message="Kernel is running." if self._started else "Kernel is initialized but not started.",
+                status=HealthStatus.HEALTHY if self.started else HealthStatus.DEGRADED,
+                message="Kernel is running." if self.started else "Kernel is initialized but not started.",
                 details={"version": __version__, "environment": self.settings.environment},
             ),
         )
