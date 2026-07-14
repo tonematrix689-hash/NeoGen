@@ -59,12 +59,16 @@ class LifecycleManager:
         priority: int = 100,
         dependencies: tuple[str, ...] = (),
     ) -> None:
-        """Register a lifecycle-managed service."""
+        """Register a lifecycle-managed service transactionally."""
 
         if name in self._states:
             raise LifecycleError(f"Lifecycle service is already registered: {name}")
-        self._registrations.append(LifecycleRegistration(name, service, priority, dependencies))
-        self._registrations = self._ordered_registrations()
+
+        candidate = LifecycleRegistration(name, service, priority, dependencies)
+        registrations = [*self._registrations, candidate]
+        ordered = self._ordered_registrations(registrations)
+
+        self._registrations = ordered
         self._states[name] = LifecycleState.REGISTERED
 
     async def start_all(self) -> None:
@@ -74,7 +78,7 @@ class LifecycleManager:
             self._logger.info("Starting service %s", registration.name)
             try:
                 await self._call(registration.service.start)
-            except Exception as exc:
+            except BaseException as exc:
                 self._states[registration.name] = LifecycleState.FAILED
                 await self.stop_all()
                 raise LifecycleError(f"Failed to start service {registration.name!r}") from exc
@@ -90,7 +94,7 @@ class LifecycleManager:
             self._logger.info("Stopping service %s", registration.name)
             try:
                 await self._call(registration.service.stop)
-            except Exception:
+            except BaseException:
                 self._states[registration.name] = LifecycleState.FAILED
                 self._logger.exception("Failed to stop service %s", registration.name)
             else:
@@ -101,8 +105,11 @@ class LifecycleManager:
         if inspect.isawaitable(result):
             await result
 
-    def _ordered_registrations(self) -> list[LifecycleRegistration]:
-        registrations = {registration.name: registration for registration in self._registrations}
+    def _ordered_registrations(
+        self,
+        registrations: list[LifecycleRegistration],
+    ) -> list[LifecycleRegistration]:
+        by_name = {registration.name: registration for registration in registrations}
         ordered: list[LifecycleRegistration] = []
         visiting: set[str] = set()
         visited: set[str] = set()
@@ -112,27 +119,25 @@ class LifecycleManager:
                 return
             if name in visiting:
                 raise LifecycleError(f"Lifecycle dependency cycle detected at {name!r}")
-            registration = registrations.get(name)
+            registration = by_name.get(name)
             if registration is None:
                 raise LifecycleError(f"Lifecycle dependency is not registered: {name}")
             visiting.add(name)
             for dependency in registration.dependencies:
-                if dependency in registrations:
+                if dependency in by_name:
                     visit(dependency)
             visiting.remove(name)
             visited.add(name)
             ordered.append(registration)
 
-        for registration in sorted(self._registrations, key=lambda item: (item.priority, item.name)):
+        for registration in sorted(registrations, key=lambda item: (item.priority, item.name)):
             visit(registration.name)
         return ordered
 
     def state(self, name: str) -> LifecycleState | None:
         """Return one service lifecycle state."""
-
         return self._states.get(name)
 
     def states(self) -> dict[str, LifecycleState]:
         """Return a copy of lifecycle states for diagnostics."""
-
         return dict(self._states)
