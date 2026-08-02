@@ -9,9 +9,12 @@ from .events import EventBus
 from .memory import MemoryEngine
 from .models import ModelRouter
 from .permissions import PermissionManager
+from .planning import PlanningEngine
 from .plugins import PluginManager
 from .projects import ProjectIntelligence
+from .puter import register_puter_provider
 from .tools import ToolRegistry
+from .verification import VerificationEngine
 from .workflows import WorkflowEngine
 
 
@@ -28,9 +31,11 @@ class NeoGenKernel:
     plugins: PluginManager
     projects: ProjectIntelligence
     tools: ToolRegistry
+    planning: PlanningEngine
+    verification: VerificationEngine
 
     @classmethod
-    def build(cls) -> "NeoGenKernel":
+    def build(cls, *, enable_puter: bool = True) -> "NeoGenKernel":
         events = EventBus()
         permissions = PermissionManager()
         memory = MemoryEngine()
@@ -40,6 +45,12 @@ class NeoGenKernel:
         plugins = PluginManager(permissions)
         projects = ProjectIntelligence()
         tools = ToolRegistry(permissions, events)
+        planning = PlanningEngine(permissions, tools, events)
+        verification = VerificationEngine(events)
+
+        if enable_puter:
+            register_puter_provider(tools, permissions, events)
+
         kernel = cls(
             events=events,
             permissions=permissions,
@@ -50,11 +61,16 @@ class NeoGenKernel:
             plugins=plugins,
             projects=projects,
             tools=tools,
+            planning=planning,
+            verification=verification,
         )
         kernel.events.publish(
             "KernelBuilt",
             source="neogen.kernel",
-            payload={"services": list(kernel.health().keys())},
+            payload={
+                "services": list(kernel.health().keys()),
+                "puter_enabled": enable_puter,
+            },
         )
         return kernel
 
@@ -70,6 +86,8 @@ class NeoGenKernel:
             "workflows": self.workflows.stats(),
             "models": {"registered": len(self.models.metrics())},
             "plugins": self.plugins.stats(),
-            "projects": {"status": 1},
+            "projects": {"service_available": 1},
             "tools": self.tools.stats(),
+            "planning": self.planning.stats(),
+            "verification": self.verification.stats(),
         }
