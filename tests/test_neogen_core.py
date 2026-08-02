@@ -15,8 +15,11 @@ from genesis.services.models import (
     PrivacyLevel,
 )
 from genesis.services.permissions import PermissionScope
+from genesis.services.planning import PlanStatus, StepKind
 from genesis.services.plugins import PluginHealth, PluginManifest, PluginStatus
 from genesis.services.projects import NodeKind, RelationKind
+from genesis.services.tools import ToolRequest
+from genesis.services.verification import VerificationStatus
 from genesis.services.workflows import WorkflowStatus
 
 
@@ -27,6 +30,7 @@ class NeoGenCoreTests(unittest.TestCase):
     def test_kernel_health_and_boot_event(self) -> None:
         health = self.kernel.health()
         self.assertEqual(health["status"], "healthy")
+        self.assertGreaterEqual(health["tools"]["registered"], 6)
         events = self.kernel.events.replay(event_types=["KernelBuilt"])
         self.assertEqual(len(events), 1)
 
@@ -204,6 +208,80 @@ class NeoGenCoreTests(unittest.TestCase):
         )
         self.assertEqual(delivered, [event.id])
         self.assertEqual(len(self.kernel.events.failures()), 1)
+
+    def test_puter_provider_is_registered_and_permission_gated(self) -> None:
+        puter_tools = self.kernel.tools.find(capability="provider.puter")
+        self.assertEqual(len(puter_tools), 6)
+        subject = "user:founder"
+        resource = "workspace:neogen"
+        for scope in (PermissionScope.USE_MODELS, PermissionScope.USE_NETWORK):
+            self.kernel.permissions.grant(
+                subject_id=subject,
+                scope=scope,
+                resource=resource,
+                granted_by=subject,
+            )
+        result = self.kernel.tools.execute(
+            ToolRequest(
+                subject_id=subject,
+                tool_id="puter.ai",
+                operation="ai.chat",
+                arguments={"prompt": "Explain NeoGen"},
+                resource=resource,
+                correlation_id="test-puter-ai",
+            )
+        )
+        self.assertTrue(result.success)
+        self.assertEqual(result.output["provider"], "puter")
+        self.assertEqual(result.output["execution_target"], "browser")
+
+    def test_planning_engine_detects_approval_requirements(self) -> None:
+        step = self.kernel.planning.make_step(
+            name="Publish dashboard",
+            kind=StepKind.TOOL,
+            description="Publish the dashboard through Puter hosting.",
+            required_permissions=[PermissionScope.DEPLOY, PermissionScope.USE_NETWORK],
+            resource="workspace:neogen",
+            tool_id="puter.hosting",
+            estimated_cost=0.1,
+            estimated_seconds=30,
+            risk=0.9,
+            verification="Confirm hosting endpoint is reachable.",
+        )
+        plan = self.kernel.planning.create_plan(
+            subject_id="user:founder",
+            goal="Publish NeoGen dashboard",
+            steps=[step],
+            success_criteria=["Dashboard is reachable"],
+        )
+        self.assertEqual(plan.status, PlanStatus.APPROVAL_REQUIRED)
+        self.assertIn(PermissionScope.DEPLOY, plan.missing_permissions)
+        requests = self.kernel.planning.approval_requests(plan.id)
+        self.assertEqual(len(requests), 2)
+
+    def test_verification_engine_reports_weighted_confidence(self) -> None:
+        nonempty = self.kernel.verification.register(
+            name="Non-empty output",
+            description="Ensure the result contains output.",
+            handler=lambda value: (bool(value), "output present", {"length": len(value)}, 0.95),
+            required=True,
+            weight=2,
+        )
+        contains_keyword = self.kernel.verification.register(
+            name="Contains NeoGen",
+            description="Ensure the result references NeoGen.",
+            handler=lambda value: ("NeoGen" in value, "keyword checked", {}, 0.85),
+            required=True,
+            weight=1,
+        )
+        report = self.kernel.verification.verify(
+            subject="assistant response",
+            value="NeoGen verified output",
+            check_ids=[nonempty.id, contains_keyword.id],
+        )
+        self.assertTrue(report.passed)
+        self.assertGreater(report.confidence, 0.8)
+        self.assertTrue(all(result.status is VerificationStatus.PASSED for result in report.results))
 
 
 if __name__ == "__main__":
