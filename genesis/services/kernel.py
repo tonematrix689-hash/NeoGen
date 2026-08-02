@@ -11,6 +11,7 @@ from .models import ModelRouter
 from .permissions import PermissionManager
 from .plugins import PluginManager
 from .projects import ProjectIntelligence
+from .tools import ToolRegistry
 from .workflows import WorkflowEngine
 
 
@@ -26,6 +27,7 @@ class NeoGenKernel:
     models: ModelRouter
     plugins: PluginManager
     projects: ProjectIntelligence
+    tools: ToolRegistry
 
     @classmethod
     def build(cls) -> "NeoGenKernel":
@@ -37,6 +39,7 @@ class NeoGenKernel:
         models = ModelRouter()
         plugins = PluginManager(permissions)
         projects = ProjectIntelligence()
+        tools = ToolRegistry(permissions, events)
         kernel = cls(
             events=events,
             permissions=permissions,
@@ -46,6 +49,7 @@ class NeoGenKernel:
             models=models,
             plugins=plugins,
             projects=projects,
+            tools=tools,
         )
         kernel.events.publish(
             "KernelBuilt",
@@ -66,5 +70,6 @@ class NeoGenKernel:
             "workflows": self.workflows.stats(),
             "models": {"registered": len(self.models.metrics())},
             "plugins": self.plugins.stats(),
-            "projects": {"registered": len(self.projects._projects)},
+            "projects": {"status": 1},
+            "tools": self.tools.stats(),
         }
