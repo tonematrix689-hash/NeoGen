@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - codex/continue-project-development
+      - agent/**
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Upgrade packaging tools
+        run: python -m pip install --upgrade pip build
+
+      - name: Install package
+        run: python -m pip install -e .
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Validate imports and console entry point
+        run: |
+          python -c "import genesis; from genesis.app.kernel.main import main; from genesis.app.kernel.runtime import GenesisRuntime; assert callable(main); assert GenesisRuntime"
+          genesis --help >/dev/null 2>&1 &
+          pid=$!
+          sleep 1
+          kill -TERM "$pid"
+          wait "$pid"
+
+      - name: Validate deterministic runtime lifecycle
+        run: |
+          python - <<'PY'
+          import asyncio
+          from genesis.app.kernel.runtime import GenesisRuntime, RuntimeState
+
+          async def validate() -> None:
+              runtime = GenesisRuntime()
+              before = runtime.snapshot()
+              assert before.state is RuntimeState.INITIALIZED
+              assert before.started is False
+
+              await runtime.start()
+              running = runtime.snapshot()
+              assert running.state is RuntimeState.RUNNING
+              assert running.started is True
+              assert "event_bus" in running.services
+
+              await runtime.stop()
+              stopped = runtime.snapshot()
+              assert stopped.state is RuntimeState.STOPPED
+              assert stopped.started is False
+
+          asyncio.run(validate())
+          PY
+
+      - name: Build distribution artifacts
+        run: python -m build
+
+      - name: Validate wheel installation
+        run: |
+          python -m venv .wheel-venv
+          .wheel-venv/bin/python -m pip install dist/*.whl
+          .wheel-venv/bin/python -c "import genesis; from genesis.app.kernel.runtime import GenesisRuntime; assert GenesisRuntime"
+
+      - name: Upload distributions
+        if: matrix.python-version == '3.13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
