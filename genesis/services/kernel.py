@@ -20,6 +20,7 @@ from .puter import register_puter_provider
 from .storage import SQLiteStore
 from .tools import ToolRegistry
 from .verification import VerificationEngine
+from .workspace import WorkspaceService
 from .workflows import WorkflowEngine
 
 
@@ -40,6 +41,7 @@ class NeoGenKernel:
     projects: ProjectIntelligence
     tools: ToolRegistry
     conversations: ConversationService
+    workspace: WorkspaceService
     planning: PlanningEngine
     verification: VerificationEngine
 
@@ -49,6 +51,7 @@ class NeoGenKernel:
         *,
         enable_puter: bool = True,
         storage_path: str | Path = ":memory:",
+        workspace_path: str | Path = "workspace",
     ) -> "NeoGenKernel":
         events = EventBus()
         storage = SQLiteStore(storage_path)
@@ -63,6 +66,7 @@ class NeoGenKernel:
         projects = ProjectIntelligence()
         tools = ToolRegistry(permissions, events)
         conversations = ConversationService(storage, tools, events)
+        workspace = WorkspaceService(workspace_path, events)
         planning = PlanningEngine(permissions, tools, events)
         verification = VerificationEngine(events)
 
@@ -83,6 +87,7 @@ class NeoGenKernel:
             projects=projects,
             tools=tools,
             conversations=conversations,
+            workspace=workspace,
             planning=planning,
             verification=verification,
         )
@@ -93,13 +98,12 @@ class NeoGenKernel:
                 "services": list(kernel.health().keys()),
                 "puter_enabled": enable_puter,
                 "storage_backend": kernel.storage.stats()["backend"],
+                "workspace_root": str(kernel.workspace.root),
             },
         )
         return kernel
 
     def checkpoint(self, *, category: str, subject_id: str, state: object) -> str:
-        """Persist a restart-safe kernel state snapshot and return its ID."""
-
         return self.checkpoints.save(
             category=category,
             subject_id=subject_id,
@@ -107,19 +111,16 @@ class NeoGenKernel:
         ).id
 
     def close(self) -> None:
-        """Release durable resources owned by the kernel."""
-
         self.storage.close()
 
     def health(self) -> dict[str, dict[str, int | str] | str]:
-        """Return a consolidated, serializable health snapshot."""
-
         return {
             "status": "healthy",
             "storage": self.storage.stats(),
             "checkpoints": self.checkpoints.stats(),
             "identity": self.identity.stats(),
             "conversations": self.conversations.stats(),
+            "workspace": self.workspace.stats(),
             "events": self.events.stats(),
             "permissions": self.permissions.stats(),
             "memory": self.memory.stats(),
