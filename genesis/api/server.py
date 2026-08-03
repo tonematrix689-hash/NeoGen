@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from genesis.services.identity import IdentityError
 from genesis.services.kernel import NeoGenKernel
 from genesis.services.permissions import PermissionScope
 from genesis.services.tools import ToolRequest
@@ -44,7 +45,12 @@ def _jsonable(value: Any) -> Any:
 
 class NeoGenApiHandler(BaseHTTPRequestHandler):
     kernel: NeoGenKernel
-    server_version = "NeoGenAPI/0.1"
+    server_version = "NeoGenAPI/0.2"
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self._cors_headers()
+        self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
         try:
@@ -57,6 +63,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
                         "version": "v1",
                         "endpoints": [
                             "/api/v1/health",
+                            "/api/v1/auth/me",
                             "/api/v1/tools",
                             "/api/v1/checkpoints",
                             "/api/v1/events",
@@ -67,19 +74,26 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/health":
                 self._send(HTTPStatus.OK, self.kernel.health())
                 return
+            if path == "/api/v1/auth/me":
+                self._send(HTTPStatus.OK, self._authenticated_user())
+                return
             if path == "/api/v1/tools":
                 self._send(HTTPStatus.OK, {"items": self.kernel.tools.find()})
                 return
             if path == "/api/v1/checkpoints":
+                self._authenticated_user()
                 records = self.kernel.storage.list(self.kernel.checkpoints.namespace)
                 self._send(HTTPStatus.OK, {"items": [record.value for record in records]})
                 return
             if path == "/api/v1/events":
+                self._authenticated_user()
                 self._send(HTTPStatus.OK, {"items": self.kernel.events.replay()})
                 return
             raise ApiError(HTTPStatus.NOT_FOUND, "Endpoint not found")
         except ApiError as exc:
             self._send(exc.status, {"error": str(exc)})
+        except IdentityError as exc:
+            self._send(HTTPStatus.UNAUTHORIZED, {"error": str(exc)})
         except Exception as exc:
             self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"{type(exc).__name__}: {exc}"})
 
@@ -87,16 +101,40 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         try:
             path = urlparse(self.path).path
             payload = self._read_json()
+            if path == "/api/v1/auth/register":
+                user = self.kernel.identity.register(
+                    email=self._required(payload, "email"),
+                    password=self._required(payload, "password"),
+                    display_name=self._required(payload, "display_name"),
+                )
+                self._send(HTTPStatus.CREATED, user)
+                return
+            if path == "/api/v1/auth/login":
+                session = self.kernel.identity.authenticate(
+                    email=self._required(payload, "email"),
+                    password=self._required(payload, "password"),
+                    session_hours=int(payload.get("session_hours", 24)),
+                )
+                self._send(HTTPStatus.OK, session)
+                return
+            if path == "/api/v1/auth/logout":
+                token = self._bearer_token()
+                self.kernel.identity.logout(token)
+                self._send(HTTPStatus.OK, {"logged_out": True})
+                return
+            user = self._authenticated_user()
             if path == "/api/v1/checkpoints":
                 checkpoint = self.kernel.checkpoints.save(
                     category=self._required(payload, "category"),
-                    subject_id=self._required(payload, "subject_id"),
+                    subject_id=str(payload.get("subject_id") or user.id),
                     state=payload.get("state", {}),
                     checkpoint_id=payload.get("checkpoint_id"),
                 )
                 self._send(HTTPStatus.CREATED, checkpoint)
                 return
             if path == "/api/v1/permissions/grant":
+                if "admin" not in user.roles:
+                    raise ApiError(HTTPStatus.FORBIDDEN, "Admin role required")
                 scope_name = self._required(payload, "scope")
                 try:
                     scope = PermissionScope(scope_name)
@@ -106,14 +144,14 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
                     subject_id=self._required(payload, "subject_id"),
                     scope=scope,
                     resource=self._required(payload, "resource"),
-                    granted_by=self._required(payload, "granted_by"),
+                    granted_by=user.id,
                 )
                 self._send(HTTPStatus.CREATED, grant)
                 return
             if path == "/api/v1/tools/execute":
                 result = self.kernel.tools.execute(
                     ToolRequest(
-                        subject_id=self._required(payload, "subject_id"),
+                        subject_id=user.id,
                         tool_id=self._required(payload, "tool_id"),
                         operation=self._required(payload, "operation"),
                         arguments=dict(payload.get("arguments", {})),
@@ -126,6 +164,8 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             raise ApiError(HTTPStatus.NOT_FOUND, "Endpoint not found")
         except ApiError as exc:
             self._send(exc.status, {"error": str(exc)})
+        except IdentityError as exc:
+            self._send(HTTPStatus.UNAUTHORIZED, {"error": str(exc)})
         except Exception as exc:
             self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
 
@@ -135,6 +175,18 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             source="neogen.api",
             payload={"client": self.client_address[0], "message": format % args},
         )
+
+    def _authenticated_user(self):
+        return self.kernel.identity.resolve(self._bearer_token())
+
+    def _bearer_token(self) -> str:
+        header = self.headers.get("Authorization", "")
+        if not header.startswith("Bearer "):
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Bearer token required")
+        token = header[7:].strip()
+        if not token:
+            raise ApiError(HTTPStatus.UNAUTHORIZED, "Bearer token required")
+        return token
 
     def _read_json(self) -> dict[str, Any]:
         try:
@@ -158,9 +210,14 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         self.send_response(int(status))
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._cors_headers()
         self.end_headers()
         self.wfile.write(body)
+
+    def _cors_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
     @staticmethod
     def _required(payload: dict[str, Any], field: str) -> str:
