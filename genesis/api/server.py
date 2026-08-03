@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from genesis.services.conversations import ConversationError
 from genesis.services.identity import IdentityError
 from genesis.services.kernel import NeoGenKernel
 from genesis.services.permissions import PermissionScope
@@ -45,7 +46,7 @@ def _jsonable(value: Any) -> Any:
 
 class NeoGenApiHandler(BaseHTTPRequestHandler):
     kernel: NeoGenKernel
-    server_version = "NeoGenAPI/0.2"
+    server_version = "NeoGenAPI/0.3"
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(HTTPStatus.NO_CONTENT)
@@ -64,6 +65,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
                         "endpoints": [
                             "/api/v1/health",
                             "/api/v1/auth/me",
+                            "/api/v1/conversations",
                             "/api/v1/tools",
                             "/api/v1/checkpoints",
                             "/api/v1/events",
@@ -77,16 +79,38 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/auth/me":
                 self._send(HTTPStatus.OK, self._authenticated_user())
                 return
+
+            user = self._authenticated_user()
+            if path == "/api/v1/conversations":
+                self._send(
+                    HTTPStatus.OK,
+                    {"items": self.kernel.conversations.list(user_id=user.id)},
+                )
+                return
+            conversation_id = self._conversation_path(path, suffix="/messages")
+            if conversation_id:
+                self._send(
+                    HTTPStatus.OK,
+                    {
+                        "conversation": self.kernel.conversations.get(
+                            conversation_id,
+                            user_id=user.id,
+                        ),
+                        "items": self.kernel.conversations.messages(
+                            conversation_id,
+                            user_id=user.id,
+                        ),
+                    },
+                )
+                return
             if path == "/api/v1/tools":
                 self._send(HTTPStatus.OK, {"items": self.kernel.tools.find()})
                 return
             if path == "/api/v1/checkpoints":
-                self._authenticated_user()
                 records = self.kernel.storage.list(self.kernel.checkpoints.namespace)
                 self._send(HTTPStatus.OK, {"items": [record.value for record in records]})
                 return
             if path == "/api/v1/events":
-                self._authenticated_user()
                 self._send(HTTPStatus.OK, {"items": self.kernel.events.replay()})
                 return
             raise ApiError(HTTPStatus.NOT_FOUND, "Endpoint not found")
@@ -94,6 +118,8 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             self._send(exc.status, {"error": str(exc)})
         except IdentityError as exc:
             self._send(HTTPStatus.UNAUTHORIZED, {"error": str(exc)})
+        except ConversationError as exc:
+            self._send(HTTPStatus.NOT_FOUND, {"error": str(exc)})
         except Exception as exc:
             self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"{type(exc).__name__}: {exc}"})
 
@@ -107,6 +133,13 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
                     password=self._required(payload, "password"),
                     display_name=self._required(payload, "display_name"),
                 )
+                for scope in (PermissionScope.USE_MODELS, PermissionScope.USE_NETWORK):
+                    self.kernel.permissions.grant(
+                        subject_id=user.id,
+                        scope=scope,
+                        resource="workspace:neogen",
+                        granted_by="system:registration",
+                    )
                 self._send(HTTPStatus.CREATED, user)
                 return
             if path == "/api/v1/auth/login":
@@ -115,6 +148,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
                     password=self._required(payload, "password"),
                     session_hours=int(payload.get("session_hours", 24)),
                 )
+                self._ensure_chat_permissions(session.user_id)
                 self._send(HTTPStatus.OK, session)
                 return
             if path == "/api/v1/auth/logout":
@@ -122,7 +156,38 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
                 self.kernel.identity.logout(token)
                 self._send(HTTPStatus.OK, {"logged_out": True})
                 return
+
             user = self._authenticated_user()
+            if path == "/api/v1/conversations":
+                conversation = self.kernel.conversations.create(
+                    user_id=user.id,
+                    title=str(payload.get("title", "New conversation")),
+                )
+                self._send(HTTPStatus.CREATED, conversation)
+                return
+            conversation_id = self._conversation_path(path, suffix="/chat")
+            if conversation_id:
+                self._ensure_chat_permissions(user.id)
+                result = self.kernel.conversations.request_ai_response(
+                    conversation_id=conversation_id,
+                    user_id=user.id,
+                    prompt=self._required(payload, "prompt"),
+                    resource=str(payload.get("resource", "workspace:neogen")),
+                    model=str(payload["model"]) if payload.get("model") else None,
+                )
+                self._send(HTTPStatus.ACCEPTED, result)
+                return
+            conversation_id = self._conversation_path(path, suffix="/responses")
+            if conversation_id:
+                message = self.kernel.conversations.record_ai_response(
+                    conversation_id=conversation_id,
+                    user_id=user.id,
+                    content=self._required(payload, "content"),
+                    provider=str(payload.get("provider", "puter")),
+                    model=str(payload["model"]) if payload.get("model") else None,
+                )
+                self._send(HTTPStatus.CREATED, message)
+                return
             if path == "/api/v1/checkpoints":
                 checkpoint = self.kernel.checkpoints.save(
                     category=self._required(payload, "category"),
@@ -166,6 +231,8 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             self._send(exc.status, {"error": str(exc)})
         except IdentityError as exc:
             self._send(HTTPStatus.UNAUTHORIZED, {"error": str(exc)})
+        except ConversationError as exc:
+            self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         except Exception as exc:
             self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
 
@@ -187,6 +254,28 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         if not token:
             raise ApiError(HTTPStatus.UNAUTHORIZED, "Bearer token required")
         return token
+
+    def _ensure_chat_permissions(self, user_id: str) -> None:
+        for scope in (PermissionScope.USE_MODELS, PermissionScope.USE_NETWORK):
+            if not self.kernel.permissions.check(
+                subject_id=user_id,
+                scope=scope,
+                resource="workspace:neogen",
+            ).allowed:
+                self.kernel.permissions.grant(
+                    subject_id=user_id,
+                    scope=scope,
+                    resource="workspace:neogen",
+                    granted_by="system:chat-bootstrap",
+                )
+
+    @staticmethod
+    def _conversation_path(path: str, *, suffix: str) -> str | None:
+        prefix = "/api/v1/conversations/"
+        if not path.startswith(prefix) or not path.endswith(suffix):
+            return None
+        conversation_id = path[len(prefix) : -len(suffix)].strip("/")
+        return conversation_id or None
 
     def _read_json(self) -> dict[str, Any]:
         try:
