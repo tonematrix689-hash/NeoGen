@@ -18,6 +18,7 @@ from .plugins import PluginManager
 from .projects import ProjectIntelligence
 from .puter import register_puter_provider
 from .storage import SQLiteStore
+from .terminal import TerminalService
 from .tools import ToolRegistry
 from .verification import VerificationEngine
 from .workspace import WorkspaceService
@@ -42,6 +43,7 @@ class NeoGenKernel:
     tools: ToolRegistry
     conversations: ConversationService
     workspace: WorkspaceService
+    terminal: TerminalService
     planning: PlanningEngine
     verification: VerificationEngine
 
@@ -67,6 +69,7 @@ class NeoGenKernel:
         tools = ToolRegistry(permissions, events)
         conversations = ConversationService(storage, tools, events)
         workspace = WorkspaceService(workspace_path, events)
+        terminal = TerminalService(workspace.root, events)
         planning = PlanningEngine(permissions, tools, events)
         verification = VerificationEngine(events)
 
@@ -88,6 +91,7 @@ class NeoGenKernel:
             tools=tools,
             conversations=conversations,
             workspace=workspace,
+            terminal=terminal,
             planning=planning,
             verification=verification,
         )
@@ -121,6 +125,7 @@ class NeoGenKernel:
             "identity": self.identity.stats(),
             "conversations": self.conversations.stats(),
             "workspace": self.workspace.stats(),
+            "terminal": self.terminal.stats(),
             "events": self.events.stats(),
             "permissions": self.permissions.stats(),
             "memory": self.memory.stats(),
