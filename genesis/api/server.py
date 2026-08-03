@@ -1,0 +1,213 @@
+"""Dependency-free REST API for the NeoGen kernel.
+
+Run with:
+    python -m genesis.api.server --host 127.0.0.1 --port 8080 --db neogen.db
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import asdict, is_dataclass
+from datetime import datetime
+from enum import Enum
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
+
+from genesis.services.kernel import NeoGenKernel
+from genesis.services.permissions import PermissionScope
+from genesis.services.tools import ToolRequest
+
+
+class ApiError(RuntimeError):
+    def __init__(self, status: HTTPStatus, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def _jsonable(value: Any) -> Any:
+    if is_dataclass(value):
+        return _jsonable(asdict(value))
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
+class NeoGenApiHandler(BaseHTTPRequestHandler):
+    kernel: NeoGenKernel
+    server_version = "NeoGenAPI/0.1"
+
+    def do_GET(self) -> None:  # noqa: N802
+        try:
+            path = urlparse(self.path).path
+            if path in {"/", "/api/v1"}:
+                self._send(
+                    HTTPStatus.OK,
+                    {
+                        "name": "NeoGen API",
+                        "version": "v1",
+                        "endpoints": [
+                            "/api/v1/health",
+                            "/api/v1/tools",
+                            "/api/v1/checkpoints",
+                            "/api/v1/events",
+                        ],
+                    },
+                )
+                return
+            if path == "/api/v1/health":
+                self._send(HTTPStatus.OK, self.kernel.health())
+                return
+            if path == "/api/v1/tools":
+                self._send(HTTPStatus.OK, {"items": self.kernel.tools.find()})
+                return
+            if path == "/api/v1/checkpoints":
+                records = self.kernel.storage.list(self.kernel.checkpoints.namespace)
+                self._send(HTTPStatus.OK, {"items": [record.value for record in records]})
+                return
+            if path == "/api/v1/events":
+                self._send(HTTPStatus.OK, {"items": self.kernel.events.replay()})
+                return
+            raise ApiError(HTTPStatus.NOT_FOUND, "Endpoint not found")
+        except ApiError as exc:
+            self._send(exc.status, {"error": str(exc)})
+        except Exception as exc:
+            self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"{type(exc).__name__}: {exc}"})
+
+    def do_POST(self) -> None:  # noqa: N802
+        try:
+            path = urlparse(self.path).path
+            payload = self._read_json()
+            if path == "/api/v1/checkpoints":
+                checkpoint = self.kernel.checkpoints.save(
+                    category=self._required(payload, "category"),
+                    subject_id=self._required(payload, "subject_id"),
+                    state=payload.get("state", {}),
+                    checkpoint_id=payload.get("checkpoint_id"),
+                )
+                self._send(HTTPStatus.CREATED, checkpoint)
+                return
+            if path == "/api/v1/permissions/grant":
+                scope_name = self._required(payload, "scope")
+                try:
+                    scope = PermissionScope(scope_name)
+                except ValueError as exc:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, f"Unknown permission scope: {scope_name}") from exc
+                grant = self.kernel.permissions.grant(
+                    subject_id=self._required(payload, "subject_id"),
+                    scope=scope,
+                    resource=self._required(payload, "resource"),
+                    granted_by=self._required(payload, "granted_by"),
+                )
+                self._send(HTTPStatus.CREATED, grant)
+                return
+            if path == "/api/v1/tools/execute":
+                result = self.kernel.tools.execute(
+                    ToolRequest(
+                        subject_id=self._required(payload, "subject_id"),
+                        tool_id=self._required(payload, "tool_id"),
+                        operation=self._required(payload, "operation"),
+                        arguments=dict(payload.get("arguments", {})),
+                        resource=str(payload.get("resource", "*")),
+                        correlation_id=payload.get("correlation_id"),
+                    )
+                )
+                self._send(HTTPStatus.OK, result)
+                return
+            raise ApiError(HTTPStatus.NOT_FOUND, "Endpoint not found")
+        except ApiError as exc:
+            self._send(exc.status, {"error": str(exc)})
+        except Exception as exc:
+            self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+
+    def log_message(self, format: str, *args: Any) -> None:
+        self.kernel.events.publish(
+            "ApiRequest",
+            source="neogen.api",
+            payload={"client": self.client_address[0], "message": format % args},
+        )
+
+    def _read_json(self) -> dict[str, Any]:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as exc:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid Content-Length") from exc
+        if length <= 0:
+            return {}
+        if length > 1_000_000:
+            raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Request body exceeds 1 MB")
+        try:
+            value = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Request body must be valid JSON") from exc
+        if not isinstance(value, dict):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "Request body must be a JSON object")
+        return value
+
+    def _send(self, status: HTTPStatus, value: Any) -> None:
+        body = json.dumps(_jsonable(value), separators=(",", ":"), sort_keys=True).encode("utf-8")
+        self.send_response(int(status))
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    @staticmethod
+    def _required(payload: dict[str, Any], field: str) -> str:
+        value = str(payload.get(field, "")).strip()
+        if not value:
+            raise ApiError(HTTPStatus.BAD_REQUEST, f"{field} is required")
+        return value
+
+
+def create_server(
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8080,
+    storage_path: str | Path = "neogen.db",
+    enable_puter: bool = True,
+) -> ThreadingHTTPServer:
+    kernel = NeoGenKernel.build(storage_path=storage_path, enable_puter=enable_puter)
+    handler = type("ConfiguredNeoGenApiHandler", (NeoGenApiHandler,), {"kernel": kernel})
+    server = ThreadingHTTPServer((host, port), handler)
+    server.daemon_threads = True
+    return server
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run the NeoGen REST API")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--db", default="neogen.db")
+    parser.add_argument("--disable-puter", action="store_true")
+    args = parser.parse_args()
+
+    server = create_server(
+        host=args.host,
+        port=args.port,
+        storage_path=args.db,
+        enable_puter=not args.disable_puter,
+    )
+    try:
+        print(f"NeoGen API listening on http://{args.host}:{args.port}")
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown()
+        server.server_close()
+        server.RequestHandlerClass.kernel.close()
+
+
+if __name__ == "__main__":
+    main()
