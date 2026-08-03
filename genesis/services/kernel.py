@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .agents import AgentManager
 from .checkpoints import CheckpointManager
+from .conversations import ConversationService
 from .events import EventBus
 from .identity import IdentityService
 from .memory import MemoryEngine
@@ -38,6 +39,7 @@ class NeoGenKernel:
     plugins: PluginManager
     projects: ProjectIntelligence
     tools: ToolRegistry
+    conversations: ConversationService
     planning: PlanningEngine
     verification: VerificationEngine
 
@@ -60,6 +62,7 @@ class NeoGenKernel:
         plugins = PluginManager(permissions)
         projects = ProjectIntelligence()
         tools = ToolRegistry(permissions, events)
+        conversations = ConversationService(storage, tools, events)
         planning = PlanningEngine(permissions, tools, events)
         verification = VerificationEngine(events)
 
@@ -79,6 +82,7 @@ class NeoGenKernel:
             plugins=plugins,
             projects=projects,
             tools=tools,
+            conversations=conversations,
             planning=planning,
             verification=verification,
         )
@@ -115,6 +119,7 @@ class NeoGenKernel:
             "storage": self.storage.stats(),
             "checkpoints": self.checkpoints.stats(),
             "identity": self.identity.stats(),
+            "conversations": self.conversations.stats(),
             "events": self.events.stats(),
             "permissions": self.permissions.stats(),
             "memory": self.memory.stats(),
