@@ -8,6 +8,7 @@ from pathlib import Path
 from .agents import AgentManager
 from .checkpoints import CheckpointManager
 from .events import EventBus
+from .identity import IdentityService
 from .memory import MemoryEngine
 from .models import ModelRouter
 from .permissions import PermissionManager
@@ -28,6 +29,7 @@ class NeoGenKernel:
     events: EventBus
     storage: SQLiteStore
     checkpoints: CheckpointManager
+    identity: IdentityService
     permissions: PermissionManager
     memory: MemoryEngine
     agents: AgentManager
@@ -49,6 +51,7 @@ class NeoGenKernel:
         events = EventBus()
         storage = SQLiteStore(storage_path)
         checkpoints = CheckpointManager(storage, events)
+        identity = IdentityService(storage, events)
         permissions = PermissionManager()
         memory = MemoryEngine()
         agents = AgentManager(permissions)
@@ -67,6 +70,7 @@ class NeoGenKernel:
             events=events,
             storage=storage,
             checkpoints=checkpoints,
+            identity=identity,
             permissions=permissions,
             memory=memory,
             agents=agents,
@@ -110,6 +114,7 @@ class NeoGenKernel:
             "status": "healthy",
             "storage": self.storage.stats(),
             "checkpoints": self.checkpoints.stats(),
+            "identity": self.identity.stats(),
             "events": self.events.stats(),
             "permissions": self.permissions.stats(),
             "memory": self.memory.stats(),
