@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from .agents import AgentManager
+from .checkpoints import CheckpointManager
 from .events import EventBus
 from .memory import MemoryEngine
 from .models import ModelRouter
@@ -13,6 +15,7 @@ from .planning import PlanningEngine
 from .plugins import PluginManager
 from .projects import ProjectIntelligence
 from .puter import register_puter_provider
+from .storage import SQLiteStore
 from .tools import ToolRegistry
 from .verification import VerificationEngine
 from .workflows import WorkflowEngine
@@ -23,6 +26,8 @@ class NeoGenKernel:
     """Own and expose the core intelligent services as one cohesive kernel."""
 
     events: EventBus
+    storage: SQLiteStore
+    checkpoints: CheckpointManager
     permissions: PermissionManager
     memory: MemoryEngine
     agents: AgentManager
@@ -35,8 +40,15 @@ class NeoGenKernel:
     verification: VerificationEngine
 
     @classmethod
-    def build(cls, *, enable_puter: bool = True) -> "NeoGenKernel":
+    def build(
+        cls,
+        *,
+        enable_puter: bool = True,
+        storage_path: str | Path = ":memory:",
+    ) -> "NeoGenKernel":
         events = EventBus()
+        storage = SQLiteStore(storage_path)
+        checkpoints = CheckpointManager(storage, events)
         permissions = PermissionManager()
         memory = MemoryEngine()
         agents = AgentManager(permissions)
@@ -53,6 +65,8 @@ class NeoGenKernel:
 
         kernel = cls(
             events=events,
+            storage=storage,
+            checkpoints=checkpoints,
             permissions=permissions,
             memory=memory,
             agents=agents,
@@ -70,15 +84,32 @@ class NeoGenKernel:
             payload={
                 "services": list(kernel.health().keys()),
                 "puter_enabled": enable_puter,
+                "storage_backend": kernel.storage.stats()["backend"],
             },
         )
         return kernel
 
-    def health(self) -> dict[str, dict[str, int] | str]:
+    def checkpoint(self, *, category: str, subject_id: str, state: object) -> str:
+        """Persist a restart-safe kernel state snapshot and return its ID."""
+
+        return self.checkpoints.save(
+            category=category,
+            subject_id=subject_id,
+            state=state,
+        ).id
+
+    def close(self) -> None:
+        """Release durable resources owned by the kernel."""
+
+        self.storage.close()
+
+    def health(self) -> dict[str, dict[str, int | str] | str]:
         """Return a consolidated, serializable health snapshot."""
 
         return {
             "status": "healthy",
+            "storage": self.storage.stats(),
+            "checkpoints": self.checkpoints.stats(),
             "events": self.events.stats(),
             "permissions": self.permissions.stats(),
             "memory": self.memory.stats(),
