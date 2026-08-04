@@ -69,6 +69,11 @@ class IdentityService:
         else:
             raise IdentityError("Email is already registered")
 
+        existing_users = self._store.list(self.user_namespace)
+        assigned_roles = set(roles or ("user",))
+        if not existing_users:
+            assigned_roles.update({"user", "admin"})
+
         user_id = f"user:{uuid4()}"
         created_at = datetime.now(timezone.utc)
         salt = os.urandom(16)
@@ -77,7 +82,7 @@ class IdentityService:
             "id": user_id,
             "email": normalized_email,
             "display_name": name,
-            "roles": sorted(set(roles or ("user",))),
+            "roles": sorted(assigned_roles),
             "active": True,
             "created_at": created_at.isoformat(),
             "password": {
@@ -93,7 +98,7 @@ class IdentityService:
         self._events.publish(
             "UserRegistered",
             source="neogen.identity",
-            payload={"user_id": user.id, "email": user.email},
+            payload={"user_id": user.id, "email": user.email, "roles": list(user.roles)},
             user_id=user.id,
         )
         return user
