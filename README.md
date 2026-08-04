@@ -10,6 +10,35 @@ Afterlife Neogenesis is the first player-facing application built on Genesis. Th
 local, dependency-free vertical slice with a landing page, dashboard, deterministic VERA companion,
 player state, wallet placeholders, governance messaging, health checks, and automated tests.
 
+## AI assistant capabilities
+
+Milestone 011 adds durable, project-scoped memory and conversation context. The standard-library
+SQLite implementation is inspectable, portable, and registered through the kernel lifecycle.
+
+Milestone 012 provides the backend for the post-login workspace. `create_workspace_runtime()`
+composes memory, consent, workspace-scoped files, shell-free terminal execution, and a UI-facing
+workspace service. File writes and terminal commands require a matching single-use approval.
+
+Milestone 013 adds an authorized coding-and-research loop. NeoGen can inventory source, bind edits
+to inspected SHA-256 versions, show unified diffs, create recovery checkpoints, restore changes, and
+research public HTTPS sources. Search and page reads require single-use consent, external content is
+marked untrusted, and local/private network access is blocked. Publishing remains a separate action.
+
+Milestone 014 adds project-scoped adaptive learning and test-gated self-improvement. NeoGen learns
+from bounded success/failure outcomes without storing prompts or code, ranks strategies with an
+inspectable online-learning score, and can improve an authorized app or its own selected source.
+Every diff and verification command requires approval; failed checks automatically restore the
+recovery checkpoint. See `docs/milestones/014-adaptive-self-improvement.md` for research and limits.
+
+To point the composed workspace runtime at an authorized application checkout, set
+`GENESIS_WORKSPACE_DIR` to that repository. NeoGen stores memory and recovery checkpoints under
+`GENESIS_DATA_DIR`, keeping runtime state separate from source code.
+
+```powershell
+$env:GENESIS_WORKSPACE_DIR = "C:\path\to\your\app"
+$env:GENESIS_DATA_DIR = "$env:LOCALAPPDATA\NeoGen"
+```
+
 ## Requirements
 
 - Python 3.11 or newer
@@ -59,8 +88,8 @@ Available routes:
 - `/api/vera` — deterministic VERA guidance endpoint
 
 The MVP does not claim to be a hosted production service. Wallet balances and inventory are local
-demonstration data. Production AI routing, authentication, persistence, ACoin settlement, marketplace,
-3D avatar tooling, and RPG systems remain separate future milestones.
+demonstration data. Production AI routing, authentication, ACoin settlement, marketplace, 3D avatar
+tooling, and further RPG systems remain separate milestones.
 
 ## Test
 
@@ -85,7 +114,7 @@ NeoGen
 │   ├── Event bus
 │   ├── Service discovery
 │   ├── Health and diagnostics
-│   └── Future memory, permissions, agents, workflows, models, and plugins
+│   └── Memory, permissions, tools, research, learning, and guarded improvement
 ├── Afterlife Neogenesis MVP
 │   ├── Landing page
 │   ├── Dashboard

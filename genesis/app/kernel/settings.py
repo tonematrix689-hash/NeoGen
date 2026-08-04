@@ -29,17 +29,20 @@ class GenesisSettings:
     startup_timeout_seconds: float = 30.0
     shutdown_timeout_seconds: float = 30.0
     debug: bool = False
+    workspace_dir: Path | None = None
 
     @classmethod
     def from_env(cls, prefix: str = "GENESIS_") -> "GenesisSettings":
         """Build settings from process environment variables."""
 
         data_dir = Path(os.getenv(f"{prefix}DATA_DIR", ".genesis")).expanduser()
+        configured_workspace = os.getenv(f"{prefix}WORKSPACE_DIR")
         return cls(
             environment=os.getenv(f"{prefix}ENVIRONMENT", "development"),
             app_name=os.getenv(f"{prefix}APP_NAME", "Genesis"),
             log_level=os.getenv(f"{prefix}LOG_LEVEL", "INFO"),
             data_dir=data_dir,
+            workspace_dir=Path(configured_workspace).expanduser() if configured_workspace else None,
             event_history_limit=int(os.getenv(f"{prefix}EVENT_HISTORY_LIMIT", "500")),
             startup_timeout_seconds=float(os.getenv(f"{prefix}STARTUP_TIMEOUT_SECONDS", "30")),
             shutdown_timeout_seconds=float(os.getenv(f"{prefix}SHUTDOWN_TIMEOUT_SECONDS", "30")),
