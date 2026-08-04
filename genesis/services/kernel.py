@@ -11,6 +11,7 @@ from .checkpoints import CheckpointManager
 from .conversations import ConversationService
 from .events import EventBus
 from .game import GameService
+from .governance import GovernanceCatalog
 from .identity import IdentityService
 from .memory import MemoryEngine
 from .models import ModelRouter
@@ -35,6 +36,7 @@ class NeoGenKernel:
     checkpoints: CheckpointManager
     identity: IdentityService
     permissions: PermissionManager
+    governance: GovernanceCatalog
     assistant: AssistantService
     memory: MemoryEngine
     agents: AgentManager
@@ -64,6 +66,7 @@ class NeoGenKernel:
         checkpoints = CheckpointManager(storage, events)
         identity = IdentityService(storage, events)
         permissions = PermissionManager()
+        governance = GovernanceCatalog()
         assistant = AssistantService(storage, permissions, events)
         memory = MemoryEngine()
         agents = AgentManager(permissions)
@@ -89,6 +92,7 @@ class NeoGenKernel:
             checkpoints=checkpoints,
             identity=identity,
             permissions=permissions,
+            governance=governance,
             assistant=assistant,
             memory=memory,
             agents=agents,
@@ -137,18 +141,25 @@ class NeoGenKernel:
         self.storage.close()
 
     def governance_snapshot(self) -> dict[str, object]:
-        return {
-            "principles": {
-                "human_authority": True,
-                "explicit_sensitive_action_approval": True,
-                "revocable_permissions": True,
-                "audit_events": True,
-                "ai_continuity_and_dignity": True,
-            },
-            "permissions": self.permissions.stats(),
-            "events": self.events.stats(),
-            "verification": self.verification.stats(),
-        }
+        snapshot = self.governance.snapshot()
+        snapshot.update(
+            {
+                "principles": {
+                    "human_authority": True,
+                    "explicit_sensitive_action_approval": True,
+                    "revocable_permissions": True,
+                    "audit_events": True,
+                    "ai_continuity_and_dignity": True,
+                    "user_shutdown_control": True,
+                },
+                "runtime": {
+                    "permissions": self.permissions.stats(),
+                    "events": self.events.stats(),
+                    "verification": self.verification.stats(),
+                },
+            }
+        )
+        return snapshot
 
     def health(self) -> dict[str, object]:
         return {
@@ -162,6 +173,7 @@ class NeoGenKernel:
             "terminal": self.terminal.stats(),
             "game": self.game.stats(),
             "world": self.world.stats(),
+            "governance": {"capabilities": len(self.governance.list())},
             "events": self.events.stats(),
             "permissions": self.permissions.stats(),
             "memory": self.memory.stats(),
