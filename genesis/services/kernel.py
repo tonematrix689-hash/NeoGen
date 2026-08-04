@@ -19,6 +19,7 @@ from .models import ModelRouter
 from .permissions import PermissionManager
 from .planning import PlanningEngine
 from .plugins import PluginManager
+from .policy_runtime import PolicyRuntime
 from .projects import ProjectIntelligence
 from .puter import register_puter_provider
 from .storage import SQLiteStore
@@ -38,6 +39,7 @@ class NeoGenKernel:
     identity: IdentityService
     permissions: PermissionManager
     governance: GovernanceCatalog
+    policy_runtime: PolicyRuntime
     agent_profiles: AgentProfileCatalog
     assistant: AssistantService
     memory: MemoryEngine
@@ -69,6 +71,7 @@ class NeoGenKernel:
         identity = IdentityService(storage, events)
         permissions = PermissionManager()
         governance = GovernanceCatalog()
+        policy_runtime = PolicyRuntime(governance)
         agent_profiles = AgentProfileCatalog()
         assistant = AssistantService(storage, permissions, events)
         memory = MemoryEngine()
@@ -96,6 +99,7 @@ class NeoGenKernel:
             identity=identity,
             permissions=permissions,
             governance=governance,
+            policy_runtime=policy_runtime,
             agent_profiles=agent_profiles,
             assistant=assistant,
             memory=memory,
@@ -176,6 +180,7 @@ class NeoGenKernel:
                     "permissions": self.permissions.stats(),
                     "events": self.events.stats(),
                     "verification": self.verification.stats(),
+                    "policy": self.policy_runtime.snapshot(),
                 },
             }
         )
@@ -194,6 +199,7 @@ class NeoGenKernel:
             "game": self.game.stats(),
             "world": self.world.stats(),
             "governance": {"capabilities": len(self.governance.list())},
+            "policy_runtime": self.policy_runtime.snapshot(),
             "agent_profiles": {"available": len(self.agent_profiles.list())},
             "events": self.events.stats(),
             "permissions": self.permissions.stats(),
