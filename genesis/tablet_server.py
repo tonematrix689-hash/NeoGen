@@ -22,6 +22,17 @@ class TabletHandler(NeoGenApiHandler):
                 self._authenticated_user(); self._send(HTTPStatus.OK,self.kernel.policy_runtime.snapshot()); return
             if path=="/api/v1/governance/emergency":
                 self._authenticated_user(); self._send(HTTPStatus.OK,self.kernel.policy_runtime.emergency_snapshot()); return
+            if path=="/api/v1/acoin/wallet":
+                user=self._authenticated_user(); self._send(HTTPStatus.OK,self.kernel.acoun.wallet(user.id)); return
+            if path=="/api/v1/acoin/transactions":
+                user=self._authenticated_user(); self._send(HTTPStatus.OK,{"items":self.kernel.acoun.transactions(owner_id=user.id)}); return
+            if path=="/api/v1/acoin/reconciliation":
+                self._authenticated_user(); self._send(HTTPStatus.OK,self.kernel.acoun.reconcile()); return
+            if path=="/api/v1/acoin/audit-export":
+                user=self._authenticated_user()
+                if not any(role in {"admin","administrator","organization_admin","auditor"} for role in user.roles):
+                    self._send(HTTPStatus.FORBIDDEN,{"error":"Auditor or administrator role required"}); return
+                self._send(HTTPStatus.OK,self.kernel.acoun.audit_export()); return
             if path.startswith("/api/"):
                 super().do_GET(); return
             self._serve_static(path)
@@ -54,6 +65,27 @@ class TabletHandler(NeoGenApiHandler):
                 user=self._authenticated_user(); payload=self._read_json(); conversation=self.kernel.conversations.get(conversation_id,user_id=user.id)
                 message=self.kernel.conversations.record_ai_response(conversation_id=conversation_id,user_id=user.id,content=self._required(payload,"content"),provider=str(payload.get("provider","puter")),model=str(payload["model"]) if payload.get("model") else None,agent_id=conversation.agent_id)
                 self._send(HTTPStatus.CREATED,message); return
+            if path=="/api/v1/acoin/reward":
+                user=self._authenticated_user(); payload=self._read_json()
+                if not any(role in {"admin","administrator","organization_admin"} for role in user.roles):
+                    self._send(HTTPStatus.FORBIDDEN,{"error":"Administrator role required"}); return
+                owner_id=str(payload.get("owner_id") or user.id)
+                transactions=self.kernel.acoun.reward(owner_id,neo=payload.get("neo",0),essence=payload.get("essence",0),reason=str(payload.get("reason","administrative reward")),metadata={"approved_by":user.id})
+                self.kernel.policy_runtime.record_audit(user_id=user.id,agent_id=None,tool_id="acoin",permission="economy.reward",action="acoin.reward",result="posted",risk_level=3,approval_status="administrator",metadata={"owner_id":owner_id,"transactions":[tx.id for tx in transactions]})
+                self._send(HTTPStatus.CREATED,{"transactions":transactions,"wallet":self.kernel.acoun.wallet(owner_id)}); return
+            if path=="/api/v1/acoin/transfer":
+                user=self._authenticated_user(); payload=self._read_json(); asset=str(payload.get("asset","NEO")).upper()
+                source=self.kernel.acoun.wallet(user.id)["accounts"].get(asset)
+                target_owner=self._required(payload,"to_owner_id")
+                target=self.kernel.acoun.wallet(target_owner)["accounts"].get(asset)
+                transaction=self.kernel.acoun.transfer(source,target,payload.get("amount",0),description=str(payload.get("description","User transfer")),metadata={"initiated_by":user.id})
+                self.kernel.policy_runtime.record_audit(user_id=user.id,agent_id=None,tool_id="acoin",permission="economy.trade",action="acoin.transfer",result="posted",risk_level=3,approval_status="user_confirmed",metadata={"transaction_id":transaction.id,"to_owner_id":target_owner,"asset":asset})
+                self._send(HTTPStatus.CREATED,{"transaction":transaction,"wallet":self.kernel.acoun.wallet(user.id)}); return
+            if path=="/api/v1/acoin/settlement":
+                user=self._authenticated_user(); payload=self._read_json()
+                transaction=self.kernel.acoun.marketplace_settlement(buyer_id=user.id,seller_id=self._required(payload,"seller_id"),price=payload.get("price",0),listing_id=self._required(payload,"listing_id"),fee_rate=payload.get("fee_rate","0.025"))
+                self.kernel.policy_runtime.record_audit(user_id=user.id,agent_id=None,tool_id="acoin",permission="economy.spend",action="acoin.marketplace_settlement",result="posted",risk_level=3,approval_status="user_confirmed",metadata={"transaction_id":transaction.id})
+                self._send(HTTPStatus.CREATED,{"transaction":transaction,"wallet":self.kernel.acoun.wallet(user.id)}); return
             if path=="/api/v1/governance/emergency":
                 user=self._authenticated_user(); payload=self._read_json()
                 if not any(role in {"admin","administrator","organization_admin"} for role in user.roles):
@@ -86,7 +118,8 @@ class TabletHandler(NeoGenApiHandler):
             for asset,tag,anchor in [
                 ("/neogen-preview.css?v=2",'<link rel="stylesheet" href="/neogen-preview.css?v=2">',"</head>"),
                 ("/neogen-preview.js?v=2",'<script src="/neogen-preview.js?v=2"></script>',"</body>"),
-                ("/neogen-agents.js?v=1",'<script src="/neogen-agents.js?v=1"></script>',"</body>")]:
+                ("/neogen-agents.js?v=1",'<script src="/neogen-agents.js?v=1"></script>',"</body>"),
+                ("/neogen-acoin.js?v=1",'<script src="/neogen-acoin.js?v=1"></script>',"</body>")]:
                 if asset not in text:text=text.replace(anchor,f"{tag}{anchor}")
             body=text.encode("utf-8")
         content_type=mimetypes.guess_type(target.name)[0] or "application/octet-stream"
