@@ -24,6 +24,7 @@ from .tools import ToolRegistry
 from .verification import VerificationEngine
 from .workspace import WorkspaceService
 from .workflows import WorkflowEngine
+from .world import WorldService
 
 
 @dataclass(slots=True)
@@ -44,6 +45,7 @@ class NeoGenKernel:
     workspace: WorkspaceService
     terminal: TerminalService
     game: GameService
+    world: WorldService
     planning: PlanningEngine
     verification: VerificationEngine
 
@@ -71,6 +73,7 @@ class NeoGenKernel:
         workspace = WorkspaceService(workspace_path, events)
         terminal = TerminalService(workspace.root, events)
         game = GameService(storage, events)
+        world = WorldService(storage, events)
         planning = PlanningEngine(permissions, tools, events)
         verification = VerificationEngine(events)
 
@@ -94,6 +97,7 @@ class NeoGenKernel:
             workspace=workspace,
             terminal=terminal,
             game=game,
+            world=world,
             planning=planning,
             verification=verification,
         )
@@ -115,7 +119,22 @@ class NeoGenKernel:
     def close(self) -> None:
         self.storage.close()
 
-    def health(self) -> dict[str, dict[str, int | str] | str]:
+    def governance_snapshot(self) -> dict[str, object]:
+        """Return the current user-control and audit posture for the UI."""
+        return {
+            "principles": {
+                "human_authority": True,
+                "explicit_sensitive_action_approval": True,
+                "revocable_permissions": True,
+                "audit_events": True,
+                "ai_continuity_and_dignity": True,
+            },
+            "permissions": self.permissions.stats(),
+            "events": self.events.stats(),
+            "verification": self.verification.stats(),
+        }
+
+    def health(self) -> dict[str, object]:
         return {
             "status": "healthy",
             "storage": self.storage.stats(),
@@ -125,6 +144,7 @@ class NeoGenKernel:
             "workspace": self.workspace.stats(),
             "terminal": self.terminal.stats(),
             "game": self.game.stats(),
+            "world": self.world.stats(),
             "events": self.events.stats(),
             "permissions": self.permissions.stats(),
             "memory": self.memory.stats(),
