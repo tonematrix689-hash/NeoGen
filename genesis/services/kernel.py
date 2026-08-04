@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .acoin import ACoinService
 from .agent_profiles import AgentProfileCatalog
 from .agents import AgentManager
 from .assistant import AssistantService
@@ -53,6 +54,7 @@ class NeoGenKernel:
     workspace: WorkspaceService
     terminal: TerminalService
     game: GameService
+    acoun: ACoinService
     world: WorldService
     planning: PlanningEngine
     verification: VerificationEngine
@@ -85,6 +87,7 @@ class NeoGenKernel:
         workspace = WorkspaceService(workspace_path, events)
         terminal = TerminalService(workspace.root, events)
         game = GameService(storage, events)
+        acoun = ACoinService(storage, events)
         world = WorldService(storage, events)
         planning = PlanningEngine(permissions, tools, events)
         verification = VerificationEngine(events)
@@ -113,6 +116,7 @@ class NeoGenKernel:
             workspace=workspace,
             terminal=terminal,
             game=game,
+            acoun=acoun,
             world=world,
             planning=planning,
             verification=verification,
@@ -141,6 +145,7 @@ class NeoGenKernel:
         return {
             "avatar": avatar,
             "wallet": wallet,
+            "acoun": self.acoun.wallet(user_id),
             "inventory_count": len(inventory),
             "world": world,
             "workspace": self.workspace.stats(),
@@ -152,10 +157,12 @@ class NeoGenKernel:
         avatar = context["avatar"]
         wallet = context["wallet"]
         world = context["world"]
+        acoun = context["acoun"]
         return (
             f"Selected agent: {profile.name}. "
             f"Avatar level: {getattr(avatar, 'level', 1)}. "
             f"Wallet balance: {getattr(wallet, 'balance', 0)} ACoin. "
+            f"Ledger NEO: {acoun['balances']['NEO']}; Essence: {acoun['balances']['ESSENCE']}. "
             f"Inventory items: {context['inventory_count']}. "
             f"World level: {world.get('world_level', 1)}. "
             f"Workspace root: {self.workspace.root}."
@@ -181,6 +188,7 @@ class NeoGenKernel:
                     "events": self.events.stats(),
                     "verification": self.verification.stats(),
                     "policy": self.policy_runtime.snapshot(),
+                    "acoun": self.acoun.reconcile(),
                 },
             }
         )
@@ -197,6 +205,7 @@ class NeoGenKernel:
             "workspace": self.workspace.stats(),
             "terminal": self.terminal.stats(),
             "game": self.game.stats(),
+            "acoun": self.acoun.stats(),
             "world": self.world.stats(),
             "governance": {"capabilities": len(self.governance.list())},
             "policy_runtime": self.policy_runtime.snapshot(),
