@@ -14,7 +14,7 @@ import mimetypes
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from genesis.api.server import NeoGenApiHandler
 from genesis.services.kernel import NeoGenKernel
@@ -29,6 +29,14 @@ class TabletHandler(NeoGenApiHandler):
             super().do_GET()
             return
         self._serve_static(path)
+
+    @staticmethod
+    def _conversation_path(path: str, suffix: str) -> str | None:
+        prefix = "/api/v1/conversations/"
+        if not path.startswith(prefix) or not path.endswith(suffix):
+            return None
+        encoded = path[len(prefix):-len(suffix)].strip("/")
+        return unquote(encoded) or None
 
     def _serve_static(self, request_path: str) -> None:
         relative = request_path.lstrip("/") or "index.html"
@@ -50,7 +58,6 @@ class TabletHandler(NeoGenApiHandler):
 
         if target.name == "index.html":
             text = body.decode("utf-8")
-            same_origin_api = "http://127.0.0.1:8080/api/v1"
             text = text.replace(
                 'value="http://127.0.0.1:8080/api/v1"',
                 'value="/api/v1"',
