@@ -199,6 +199,21 @@ class PermissionManager:
         )
         return PermissionDecision(False, True, "Approval request created", request.id)
 
+    def check(
+        self,
+        *,
+        subject_id: str,
+        scope: PermissionScope,
+        resource: str,
+    ) -> PermissionDecision:
+        """Compatibility alias for callers that only need a permission decision."""
+        return self.evaluate(
+            subject_id=subject_id,
+            scope=scope,
+            resource=resource,
+            auto_request=False,
+        )
+
     def has_permission(self, *, subject_id: str, scope: PermissionScope, resource: str) -> bool:
         with self._lock:
             for grant in self._grants.values():
