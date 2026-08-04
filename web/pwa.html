@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d1424">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="NeoGen">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/neogen-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/neogen-icon.svg">
+  <title>NeoGen Afterlife</title>
+  <style>
+    :root{font-family:Inter,system-ui,sans-serif;color:#eef2ff;background:#080c16}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at top,#192544,#080c16 55%)}
+    main{width:min(520px,100%);padding:28px;border:1px solid #2b3958;border-radius:18px;background:#111a2e;text-align:center}
+    h1{margin:0 0 8px}.muted{color:#9ba9c5}.status{margin:18px 0;padding:12px;border-radius:10px;background:#0a1120}
+    button,a{display:inline-block;border:0;border-radius:9px;padding:11px 16px;background:#697aff;color:white;font:inherit;font-weight:750;text-decoration:none;cursor:pointer}
+    button[hidden]{display:none}.secondary{background:#26334f;margin-left:8px}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>NeoGen Afterlife</h1>
+    <p class="muted">VERA AI workspace, avatar, ACoin wallet and marketplace.</p>
+    <div id="status" class="status">Preparing the tablet app…</div>
+    <button id="install" hidden>Install NeoGen</button>
+    <a id="open" href="./index.html" class="secondary">Open NeoGen</a>
+  </main>
+  <script>
+    let installPrompt = null;
+    const status = document.getElementById('status');
+    const install = document.getElementById('install');
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./service-worker.js')
+        .then(() => { status.textContent = navigator.onLine ? 'NeoGen is ready.' : 'NeoGen is ready offline.'; })
+        .catch((error) => { status.textContent = 'App loaded, but offline caching failed: ' + error.message; });
+    } else {
+      status.textContent = 'NeoGen is ready. This browser does not support offline installation.';
+    }
+
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault();
+      installPrompt = event;
+      install.hidden = false;
+      status.textContent = 'NeoGen can now be installed on this tablet.';
+    });
+
+    install.addEventListener('click', async () => {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      await installPrompt.userChoice;
+      installPrompt = null;
+      install.hidden = true;
+    });
+
+    window.addEventListener('appinstalled', () => {
+      status.textContent = 'NeoGen has been installed.';
+      install.hidden = true;
+    });
+  </script>
+</body>
+</html>
