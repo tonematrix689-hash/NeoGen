@@ -9,6 +9,7 @@ from .agents import AgentManager
 from .checkpoints import CheckpointManager
 from .conversations import ConversationService
 from .events import EventBus
+from .game import GameService
 from .identity import IdentityService
 from .memory import MemoryEngine
 from .models import ModelRouter
@@ -27,8 +28,6 @@ from .workflows import WorkflowEngine
 
 @dataclass(slots=True)
 class NeoGenKernel:
-    """Own and expose the core intelligent services as one cohesive kernel."""
-
     events: EventBus
     storage: SQLiteStore
     checkpoints: CheckpointManager
@@ -44,6 +43,7 @@ class NeoGenKernel:
     conversations: ConversationService
     workspace: WorkspaceService
     terminal: TerminalService
+    game: GameService
     planning: PlanningEngine
     verification: VerificationEngine
 
@@ -70,6 +70,7 @@ class NeoGenKernel:
         conversations = ConversationService(storage, tools, events)
         workspace = WorkspaceService(workspace_path, events)
         terminal = TerminalService(workspace.root, events)
+        game = GameService(storage, events)
         planning = PlanningEngine(permissions, tools, events)
         verification = VerificationEngine(events)
 
@@ -92,6 +93,7 @@ class NeoGenKernel:
             conversations=conversations,
             workspace=workspace,
             terminal=terminal,
+            game=game,
             planning=planning,
             verification=verification,
         )
@@ -108,11 +110,7 @@ class NeoGenKernel:
         return kernel
 
     def checkpoint(self, *, category: str, subject_id: str, state: object) -> str:
-        return self.checkpoints.save(
-            category=category,
-            subject_id=subject_id,
-            state=state,
-        ).id
+        return self.checkpoints.save(category=category, subject_id=subject_id, state=state).id
 
     def close(self) -> None:
         self.storage.close()
@@ -126,6 +124,7 @@ class NeoGenKernel:
             "conversations": self.conversations.stats(),
             "workspace": self.workspace.stats(),
             "terminal": self.terminal.stats(),
+            "game": self.game.stats(),
             "events": self.events.stats(),
             "permissions": self.permissions.stats(),
             "memory": self.memory.stats(),
