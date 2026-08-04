@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .agent_profiles import AgentProfileCatalog
 from .agents import AgentManager
 from .assistant import AssistantService
 from .checkpoints import CheckpointManager
@@ -37,6 +38,7 @@ class NeoGenKernel:
     identity: IdentityService
     permissions: PermissionManager
     governance: GovernanceCatalog
+    agent_profiles: AgentProfileCatalog
     assistant: AssistantService
     memory: MemoryEngine
     agents: AgentManager
@@ -67,6 +69,7 @@ class NeoGenKernel:
         identity = IdentityService(storage, events)
         permissions = PermissionManager()
         governance = GovernanceCatalog()
+        agent_profiles = AgentProfileCatalog()
         assistant = AssistantService(storage, permissions, events)
         memory = MemoryEngine()
         agents = AgentManager(permissions)
@@ -93,6 +96,7 @@ class NeoGenKernel:
             identity=identity,
             permissions=permissions,
             governance=governance,
+            agent_profiles=agent_profiles,
             assistant=assistant,
             memory=memory,
             agents=agents,
@@ -117,6 +121,7 @@ class NeoGenKernel:
                 "puter_enabled": enable_puter,
                 "storage_backend": kernel.storage.stats()["backend"],
                 "workspace_root": str(kernel.workspace.root),
+                "agent_profiles": len(kernel.agent_profiles.list()),
             },
         )
         return kernel
@@ -136,6 +141,21 @@ class NeoGenKernel:
             "world": world,
             "workspace": self.workspace.stats(),
         }
+
+    def agent_context_summary(self, user_id: str, agent_id: str) -> str:
+        profile = self.agent_profiles.get(agent_id)
+        context = self.assistant_context(user_id)
+        avatar = context["avatar"]
+        wallet = context["wallet"]
+        world = context["world"]
+        return (
+            f"Selected agent: {profile.name}. "
+            f"Avatar level: {getattr(avatar, 'level', 1)}. "
+            f"Wallet balance: {getattr(wallet, 'balance', 0)} ACoin. "
+            f"Inventory items: {context['inventory_count']}. "
+            f"World level: {world.get('world_level', 1)}. "
+            f"Workspace root: {self.workspace.root}."
+        )
 
     def close(self) -> None:
         self.storage.close()
@@ -174,6 +194,7 @@ class NeoGenKernel:
             "game": self.game.stats(),
             "world": self.world.stats(),
             "governance": {"capabilities": len(self.governance.list())},
+            "agent_profiles": {"available": len(self.agent_profiles.list())},
             "events": self.events.stats(),
             "permissions": self.permissions.stats(),
             "memory": self.memory.stats(),
