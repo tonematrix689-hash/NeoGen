@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">NeoGen Afterlife</title>
+  <desc id="desc">A geometric N symbol inside a glowing circular core.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111a2e"/>
+      <stop offset="1" stop-color="#080c16"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8d9bff"/>
+      <stop offset="1" stop-color="#586cff"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="154" fill="none" stroke="#2e3c67" stroke-width="18"/>
+  <circle cx="256" cy="256" r="118" fill="none" stroke="url(#core)" stroke-width="12" opacity=".9" filter="url(#glow)"/>
+  <path d="M164 354V158h44l96 122V158h44v196h-42l-98-124v124z" fill="url(#core)" filter="url(#glow)"/>
+  <circle cx="256" cy="94" r="10" fill="#9aa7ff"/>
+  <circle cx="418" cy="256" r="10" fill="#9aa7ff"/>
+  <circle cx="256" cy="418" r="10" fill="#9aa7ff"/>
+  <circle cx="94" cy="256" r="10" fill="#9aa7ff"/>
+</svg>
