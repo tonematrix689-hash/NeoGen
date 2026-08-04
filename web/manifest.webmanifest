@@ -1,0 +1,12 @@
+{
+  "name": "NeoGen Afterlife",
+  "short_name": "NeoGen",
+  "description": "VERA AI workspace and Afterlife Neogenesis progressive mobile app.",
+  "id": "/web/pma.html",
+  "start_url": "./pma.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#080c16",
+  "theme_color": "#0d1424",
