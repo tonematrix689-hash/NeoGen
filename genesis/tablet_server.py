@@ -70,6 +70,12 @@ class TabletHandler(NeoGenApiHandler):
                 "const $=id=>document.getElementById(id);",
                 "if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister()));}const $=id=>document.getElementById(id);",
             )
+            preview_css = '<link rel="stylesheet" href="/neogen-preview.css?v=1">'
+            preview_js = '<script src="/neogen-preview.js?v=1"></script>'
+            if preview_css not in text:
+                text = text.replace("</head>", f"{preview_css}</head>")
+            if preview_js not in text:
+                text = text.replace("</body>", f"{preview_js}</body>")
             body = text.encode("utf-8")
 
         content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
