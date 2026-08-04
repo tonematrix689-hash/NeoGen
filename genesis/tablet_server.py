@@ -47,11 +47,31 @@ class TabletHandler(NeoGenApiHandler):
         except OSError:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
+
+        if target.name == "index.html":
+            text = body.decode("utf-8")
+            same_origin_api = "http://127.0.0.1:8080/api/v1"
+            text = text.replace(
+                'value="http://127.0.0.1:8080/api/v1"',
+                'value="/api/v1"',
+            )
+            text = text.replace(
+                "function apiBase(){return $('apiBase').value.replace(/\\/$/,'')}",
+                "function apiBase(){const v=$('apiBase').value.trim();return (v&&v!=='/api/v1'?v:location.origin+'/api/v1').replace(/\\/$/,'')}",
+            )
+            text = text.replace(
+                "const $=id=>document.getElementById(id);",
+                "if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister()));}const $=id=>document.getElementById(id);",
+            )
+            body = text.encode("utf-8")
+
         content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache" if target.name == "index.html" else "public, max-age=3600")
+        self.send_header("Cache-Control", "no-store, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(body)
 
