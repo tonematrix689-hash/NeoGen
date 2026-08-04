@@ -54,7 +54,7 @@ class NeoGenKernel:
     workspace: WorkspaceService
     terminal: TerminalService
     game: GameService
-    acoun: ACoinService
+    acoin: ACoinService
     world: WorldService
     planning: PlanningEngine
     verification: VerificationEngine
@@ -87,7 +87,7 @@ class NeoGenKernel:
         workspace = WorkspaceService(workspace_path, events)
         terminal = TerminalService(workspace.root, events)
         game = GameService(storage, events)
-        acoun = ACoinService(storage, events)
+        acoin = ACoinService(storage, events)
         world = WorldService(storage, events)
         planning = PlanningEngine(permissions, tools, events)
         verification = VerificationEngine(events)
@@ -116,7 +116,7 @@ class NeoGenKernel:
             workspace=workspace,
             terminal=terminal,
             game=game,
-            acoun=acoun,
+            acoin=acoin,
             world=world,
             planning=planning,
             verification=verification,
@@ -134,6 +134,11 @@ class NeoGenKernel:
         )
         return kernel
 
+    @property
+    def acoun(self) -> ACoinService:
+        """Temporary backward-compatible alias for early tablet builds."""
+        return self.acoin
+
     def checkpoint(self, *, category: str, subject_id: str, state: object) -> str:
         return self.checkpoints.save(category=category, subject_id=subject_id, state=state).id
 
@@ -145,7 +150,7 @@ class NeoGenKernel:
         return {
             "avatar": avatar,
             "wallet": wallet,
-            "acoun": self.acoun.wallet(user_id),
+            "acoin": self.acoin.wallet(user_id),
             "inventory_count": len(inventory),
             "world": world,
             "workspace": self.workspace.stats(),
@@ -157,12 +162,12 @@ class NeoGenKernel:
         avatar = context["avatar"]
         wallet = context["wallet"]
         world = context["world"]
-        acoun = context["acoun"]
+        acoin = context["acoin"]
         return (
             f"Selected agent: {profile.name}. "
             f"Avatar level: {getattr(avatar, 'level', 1)}. "
             f"Wallet balance: {getattr(wallet, 'balance', 0)} ACoin. "
-            f"Ledger NEO: {acoun['balances']['NEO']}; Essence: {acoun['balances']['ESSENCE']}. "
+            f"Ledger NEO: {acoin['balances']['NEO']}; Essence: {acoin['balances']['ESSENCE']}. "
             f"Inventory items: {context['inventory_count']}. "
             f"World level: {world.get('world_level', 1)}. "
             f"Workspace root: {self.workspace.root}."
@@ -188,7 +193,7 @@ class NeoGenKernel:
                     "events": self.events.stats(),
                     "verification": self.verification.stats(),
                     "policy": self.policy_runtime.snapshot(),
-                    "acoun": self.acoun.reconcile(),
+                    "acoin": self.acoin.reconcile(),
                 },
             }
         )
@@ -205,7 +210,7 @@ class NeoGenKernel:
             "workspace": self.workspace.stats(),
             "terminal": self.terminal.stats(),
             "game": self.game.stats(),
-            "acoun": self.acoun.stats(),
+            "acoin": self.acoin.stats(),
             "world": self.world.stats(),
             "governance": {"capabilities": len(self.governance.list())},
             "policy_runtime": self.policy_runtime.snapshot(),
