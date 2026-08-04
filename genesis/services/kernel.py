@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .agents import AgentManager
+from .assistant import AssistantService
 from .checkpoints import CheckpointManager
 from .conversations import ConversationService
 from .events import EventBus
@@ -34,6 +35,7 @@ class NeoGenKernel:
     checkpoints: CheckpointManager
     identity: IdentityService
     permissions: PermissionManager
+    assistant: AssistantService
     memory: MemoryEngine
     agents: AgentManager
     workflows: WorkflowEngine
@@ -62,6 +64,7 @@ class NeoGenKernel:
         checkpoints = CheckpointManager(storage, events)
         identity = IdentityService(storage, events)
         permissions = PermissionManager()
+        assistant = AssistantService(storage, permissions, events)
         memory = MemoryEngine()
         agents = AgentManager(permissions)
         workflows = WorkflowEngine(agents, permissions)
@@ -86,6 +89,7 @@ class NeoGenKernel:
             checkpoints=checkpoints,
             identity=identity,
             permissions=permissions,
+            assistant=assistant,
             memory=memory,
             agents=agents,
             workflows=workflows,
@@ -116,11 +120,23 @@ class NeoGenKernel:
     def checkpoint(self, *, category: str, subject_id: str, state: object) -> str:
         return self.checkpoints.save(category=category, subject_id=subject_id, state=state).id
 
+    def assistant_context(self, user_id: str) -> dict[str, object]:
+        avatar = self.game.get_or_create_avatar(user_id)
+        wallet = self.game.wallet(user_id)
+        inventory = self.game.inventory(user_id)
+        world = self.world.profile(user_id)
+        return {
+            "avatar": avatar,
+            "wallet": wallet,
+            "inventory_count": len(inventory),
+            "world": world,
+            "workspace": self.workspace.stats(),
+        }
+
     def close(self) -> None:
         self.storage.close()
 
     def governance_snapshot(self) -> dict[str, object]:
-        """Return the current user-control and audit posture for the UI."""
         return {
             "principles": {
                 "human_authority": True,
@@ -140,6 +156,7 @@ class NeoGenKernel:
             "storage": self.storage.stats(),
             "checkpoints": self.checkpoints.stats(),
             "identity": self.identity.stats(),
+            "assistant": self.assistant.stats(),
             "conversations": self.conversations.stats(),
             "workspace": self.workspace.stats(),
             "terminal": self.terminal.stats(),
