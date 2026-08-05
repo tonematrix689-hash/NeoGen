@@ -1,0 +1,15 @@
+{
+  "name": "neogen-web-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NeoGen permission-controlled AI development assistant powered by Puter.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
