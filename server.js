@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { listApprovedTasks, runApprovedTask } from './task-runner.js';
+import { buildRepositoryIndex, searchRepositoryIndex } from './repository-indexer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,6 +30,10 @@ const clientId = process.env.GITHUB_CLIENT_ID || '';
 const clientSecret = process.env.GITHUB_CLIENT_SECRET || '';
 const callbackUrl = process.env.GITHUB_CALLBACK_URL || `http://127.0.0.1:${port}/api/github/callback`;
 const sessions = new Map();
+let repositoryIndex = null;
+let repositoryIndexBuiltAt = 0;
+let repositoryIndexPromise = null;
+const INDEX_TTL_MS = 30000;
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -74,6 +79,21 @@ async function readJson(req) {
   return raw ? JSON.parse(raw) : {};
 }
 
+async function getRepositoryIndex(force = false) {
+  const fresh = repositoryIndex && Date.now() - repositoryIndexBuiltAt < INDEX_TTL_MS;
+  if (!force && fresh) return repositoryIndex;
+  if (!repositoryIndexPromise) {
+    repositoryIndexPromise = buildRepositoryIndex(__dirname)
+      .then((index) => {
+        repositoryIndex = index;
+        repositoryIndexBuiltAt = Date.now();
+        return index;
+      })
+      .finally(() => { repositoryIndexPromise = null; });
+  }
+  return repositoryIndexPromise;
+}
+
 async function github(token, endpoint, options = {}) {
   const response = await fetch(`https://api.github.com${endpoint}`, {
     ...options,
@@ -106,9 +126,10 @@ async function handleApi(req, res, url) {
   if (url.pathname === '/api/health') return sendJson(res, 200, {
     ok: true,
     service: 'NeoGen',
-    version: '1.2.0',
+    version: '1.3.0',
     githubConfigured: Boolean(clientId && clientSecret),
     approvedTasks: listApprovedTasks().map((task) => task.id),
+    repositoryIndexReady: Boolean(repositoryIndex),
     timestamp: new Date().toISOString()
   });
 
@@ -122,6 +143,26 @@ async function handleApi(req, res, url) {
     if (!body.taskId) return sendJson(res, 400, { error: 'taskId is required.' });
     const result = await runApprovedTask(body.taskId, __dirname);
     return sendJson(res, result.ok ? 200 : 422, result);
+  }
+
+  if (url.pathname === '/api/index/summary' && req.method === 'GET') {
+    const force = url.searchParams.get('refresh') === '1';
+    const index = await getRepositoryIndex(force);
+    return sendJson(res, 200, { generatedAt: index.generatedAt, summary: index.summary });
+  }
+
+  if (url.pathname === '/api/index/search' && req.method === 'GET') {
+    const query = url.searchParams.get('q') || '';
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 50), 1), 100);
+    const index = await getRepositoryIndex(false);
+    return sendJson(res, 200, { query, results: searchRepositoryIndex(index, query, limit) });
+  }
+
+  if (url.pathname === '/api/index/symbols' && req.method === 'GET') {
+    const index = await getRepositoryIndex(false);
+    const query = (url.searchParams.get('q') || '').toLowerCase();
+    const symbols = query ? index.symbols.filter((symbol) => symbol.name.toLowerCase().includes(query)) : index.symbols;
+    return sendJson(res, 200, { symbols: symbols.slice(0, 500), total: symbols.length });
   }
 
   if (url.pathname === '/api/github/login') {
@@ -191,6 +232,8 @@ async function handleApi(req, res, url) {
     const payload = { message: body.message, content: Buffer.from(body.content, 'utf8').toString('base64'), branch: body.branch };
     if (body.sha) payload.sha = body.sha;
     const result = await github(session.token, `/repos/${owner}/${name}/contents/${body.path.split('/').map(encodeURIComponent).join('/')}`, { method: 'PUT', body: JSON.stringify(payload) });
+    repositoryIndex = null;
+    repositoryIndexBuiltAt = 0;
     return sendJson(res, 200, { ok: true, commit: result.commit, content: result.content });
   }
 
