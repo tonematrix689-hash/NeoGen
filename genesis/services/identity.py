@@ -72,7 +72,7 @@ class IdentityService:
         existing_users = self._store.list(self.user_namespace)
         assigned_roles = set(roles or ("user",))
         if not existing_users:
-            assigned_roles.update({"user", "admin"})
+            assigned_roles.update({"user", "admin", "owner"})
 
         user_id = f"user:{uuid4()}"
         created_at = datetime.now(timezone.utc)

@@ -1,15 +1,15 @@
 {
   "name": "NeoGen Afterlife",
   "short_name": "NeoGen",
-  "description": "VERA AI workspace and Afterlife Neogenesis progressive web app.",
-  "id": "./pwa.html",
-  "start_url": "./pwa.html",
+  "description": "VERA governed AI workspace and the endlessly evolving Neo Genesis Afterlife.",
+  "id": "./",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "any",
-  "background_color": "#080c16",
-  "theme_color": "#0d1424",
+  "background_color": "#070913",
+  "theme_color": "#070913",
   "categories": ["productivity", "games", "developer tools"],
   "icons": [
     {
@@ -23,12 +23,12 @@
     {
       "name": "VERA Workspace",
       "short_name": "VERA",
-      "url": "./pwa.html#workspace"
+      "url": "./"
     },
     {
       "name": "Avatar and Economy",
       "short_name": "Afterlife",
-      "url": "./pwa.html#game"
+      "url": "./"
     }
   ]
 }

@@ -87,6 +87,45 @@ class ConversationService:
             )
         )
 
+    def rename(self, conversation_id: str, *, user_id: str, title: str) -> Conversation:
+        conversation = self.get(conversation_id, user_id=user_id)
+        updated = Conversation(
+            id=conversation.id,
+            user_id=conversation.user_id,
+            title=self._required(title, "title"),
+            created_at=conversation.created_at,
+            updated_at=datetime.now(timezone.utc),
+        )
+        current = self._store.get(self.conversation_namespace, conversation.id)
+        self._store.put(
+            self.conversation_namespace,
+            conversation.id,
+            self._conversation_payload(updated),
+            expected_version=current.version,
+        )
+        self._events.publish(
+            "ConversationRenamed",
+            source="neogen.vera",
+            payload={"conversation_id": conversation.id, "title": updated.title},
+            user_id=user_id,
+        )
+        return updated
+
+    def delete(self, conversation_id: str, *, user_id: str) -> Conversation:
+        conversation = self.get(conversation_id, user_id=user_id)
+        prefix = f"{conversation_id}:"
+        while records := self._store.list(self.message_namespace, prefix=prefix):
+            for record in records:
+                self._store.delete(self.message_namespace, record.key)
+        self._store.delete(self.conversation_namespace, conversation.id)
+        self._events.publish(
+            "ConversationDeleted",
+            source="neogen.vera",
+            payload={"conversation_id": conversation.id},
+            user_id=user_id,
+        )
+        return conversation
+
     def messages(self, conversation_id: str, *, user_id: str) -> tuple[Message, ...]:
         self.get(conversation_id, user_id=user_id)
         prefix = f"{conversation_id}:"

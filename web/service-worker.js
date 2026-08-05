@@ -1,8 +1,10 @@
-const CACHE_NAME = 'neogen-pwa-v1';
+const CACHE_NAME = 'neogen-pwa-v3';
 const APP_SHELL = [
   './',
   './pwa.html',
   './index.html',
+  './assets/neogen.css',
+  './assets/neogen.js',
   './manifest.webmanifest',
   './icons/neogen-icon.svg'
 ];

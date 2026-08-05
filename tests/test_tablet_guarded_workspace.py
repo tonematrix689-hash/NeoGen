@@ -65,6 +65,31 @@ class GuardedTabletWorkspaceTests(unittest.TestCase):
         with urlopen(request, timeout=5) as response:
             return json.loads(response.read())
 
+    def request_json(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, object] | None = None,
+        *,
+        authenticated: bool = False,
+    ):
+        headers = {"Content-Type": "application/json"}
+        if authenticated:
+            headers["Authorization"] = f"Bearer {self.token}"
+        request = Request(
+            f"{self.base_url}{path}",
+            data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+            headers=headers,
+            method=method,
+        )
+        with urlopen(request, timeout=5) as response:
+            return json.loads(response.read())
+
+    def get_text(self, path: str) -> str:
+        host, port = self.server.server_address
+        with urlopen(f"http://{host}:{port}{path}", timeout=5) as response:
+            return response.read().decode("utf-8")
+
     def test_file_write_requires_exact_single_use_approval(self) -> None:
         action = {"path": "notes/plan.txt", "content": "Continue NeoGen"}
         approval = self.post(
@@ -131,6 +156,103 @@ class GuardedTabletWorkspaceTests(unittest.TestCase):
         )
         self.assertEqual(result["exit_code"], 0)
         self.assertIn("approved", result["stdout"])
+
+    def test_conversation_history_can_be_renamed_and_deleted(self) -> None:
+        conversation = self.post(
+            "/conversations", {"title": "New conversation"}, authenticated=True
+        )
+        encoded_id = conversation["id"].replace(":", "%3A")
+        renamed = self.request_json(
+            "PATCH",
+            f"/conversations/{encoded_id}",
+            {"title": "NeoGen redesign"},
+            authenticated=True,
+        )
+        self.assertEqual(renamed["title"], "NeoGen redesign")
+
+        deleted = self.request_json(
+            "DELETE", f"/conversations/{encoded_id}", authenticated=True
+        )
+        self.assertTrue(deleted["deleted"])
+        listing = self.request_json("GET", "/conversations", authenticated=True)
+        self.assertNotIn(conversation["id"], [item["id"] for item in listing["items"]])
+
+    def test_assistant_first_ui_exposes_scoped_approvals_and_canvas(self) -> None:
+        page = self.get_text("/")
+        self.assertIn('id="landingTop"', page)
+        self.assertEqual(page.count('data-plan-card="level-'), 10)
+        self.assertIn('data-plan-card="business"', page)
+        self.assertIn('data-plan-card="enterprise"', page)
+        self.assertIn('class="silica-core"', page)
+        self.assertIn('id="chatView"', page)
+        self.assertIn('id="approvalCard"', page)
+        self.assertIn('id="approveAction"', page)
+        self.assertIn('id="resultCanvas"', page)
+        self.assertIn('id="councilView"', page)
+        self.assertIn('id="agentGrid"', page)
+        self.assertIn('id="runCouncil"', page)
+        self.assertIn('id="trainingView"', page)
+        self.assertIn('id="startTraining"', page)
+        self.assertIn('id="settingsPlanGrid"', page)
+        self.assertIn('id="settingsAbilityGrid"', page)
+        self.assertIn('data-ability="agent_council"', page)
+        self.assertIn('data-ability="static_publish"', page)
+        self.assertIn('src="https://js.puter.com/v2/"', page)
+
+        client = self.get_text("/assets/neogen.js")
+        self.assertIn("requestUserApproval", client)
+        self.assertIn("completeAction", client)
+        self.assertIn("COUNCIL_ROLES", client)
+        self.assertIn("runAgentCouncil", client)
+        self.assertIn("saveCouncilTranscript", client)
+        council_roles = client.split("const COUNCIL_ROLES = [", 1)[1].split("];", 1)[0]
+        self.assertEqual(council_roles.count('{ id: "'), 10)
+        self.assertIn("startTrainingResearch", client)
+        self.assertIn("PLAN_LABELS", client)
+        self.assertIn('admin: "Level 11 · Admin"', client)
+        self.assertIn('owner: "Level 12 · Owner"', client)
+        ability_catalog = client.split("const ABILITY_CATALOG = [", 1)[1].split("];", 1)[0]
+        self.assertEqual(ability_catalog.count('{ id: "'), 36)
+        self.assertIn('id: "subscription_admin"', ability_catalog)
+        self.assertIn('id: "emergency_recovery"', ability_catalog)
+        self.assertIn("applyEntitlements", client)
+        self.assertIn("loadSubscription", client)
+
+        styles = self.get_text("/assets/neogen.css")
+        self.assertIn("Silica Matrix landing", styles)
+        self.assertIn(".orbit-blue", styles)
+        self.assertIn("--accent-gold", styles)
+
+    def test_subscription_catalog_requests_and_activation(self) -> None:
+        catalog = self.request_json("GET", "/subscriptions/catalog")
+        self.assertEqual(len(catalog["items"]), 14)
+        self.assertEqual(
+            [plan["level"] for plan in catalog["items"][:10]], list(range(1, 11))
+        )
+
+        current = self.request_json("GET", "/subscriptions/current", authenticated=True)
+        self.assertEqual(current["plan"]["id"], "owner")
+        self.assertEqual(current["plan"]["level"], 12)
+        self.assertEqual(current["subscription"]["state"], "active")
+
+        requested = self.request_json(
+            "POST", "/subscriptions/request", {"plan_id": "level-9"}, authenticated=True
+        )
+        self.assertTrue(requested["checkout_required"])
+        self.assertEqual(requested["subscription"]["state"], "pending_provider")
+        current = self.request_json("GET", "/subscriptions/current", authenticated=True)
+        self.assertEqual(current["plan"]["id"], "owner")
+
+        user = self.request_json("GET", "/auth/me", authenticated=True)
+        activated = self.request_json(
+            "POST",
+            "/subscriptions/activate",
+            {"user_id": user["id"], "plan_id": "level-9", "provider": "test"},
+            authenticated=True,
+        )
+        self.assertEqual(activated["plan_id"], "level-9")
+        current = self.request_json("GET", "/subscriptions/current", authenticated=True)
+        self.assertIn("agent_council", current["plan"]["abilities"])
 
 
 if __name__ == "__main__":

@@ -57,6 +57,7 @@ class TabletHandler(NeoGenApiHandler):
                     {
                         "status": self.guarded_workspace.repository_status(),
                         "log": self.guarded_workspace.repository_log(),
+                        "diff": self.guarded_workspace.repository_diff(),
                     },
                 )
             except ApiError as exc:

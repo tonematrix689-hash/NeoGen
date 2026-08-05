@@ -37,6 +37,23 @@ behind the Genesis runtime: the browser requests a visible, exact-action approva
 consumes that approval once. A Puter-hosted frontend therefore remains useful on its own for AI and
 cloud data, but it cannot silently acquire shell access to the user's device.
 
+The redesigned tablet experience uses a conversation-first interface with persistent local and
+Puter-backed history, dynamic model selection, responsive navigation, Monaco editing, repository
+inspection, command-center analytics, Academy, capability management, settings, and the expanding
+Afterlife world. The Neo composer exposes Puter chat and multimodal analysis, image and video
+generation, OCR, text-to-speech, transcription, and speech-to-speech conversion. Puter function
+calling can inspect NeoGen health, source, Git, and cloud files; any requested file write, terminal
+command, Git mutation, cloud note, or publication still pauses for visible exact-action approval.
+
+The public client now presents NeoGen through a silica-core visual system and a subscription
+catalogue with ten cumulative individual levels, role-assigned Admin Level 11 and Owner Level 12,
+plus Business and Enterprise plans. Every plan and ability remains visible in Settings, including
+locked and provider-dependent options, so users can understand the complete capability path. The backend
+persists active entitlements and pending plan requests without accepting payment credentials.
+Level 1 activates automatically; paid requests remain pending until an explicitly configured
+billing provider or an administrator confirms activation, so the interface never mistakes a plan
+selection for a completed charge.
+
 When the configured workspace is a Git checkout, NeoGen also exposes repository status, history,
 diffs, branches, commits, fetches, pushes, merges, and other Git operations. Inspection is read-only;
 every Git mutation is executed without a command shell and requires a matching one-time approval.

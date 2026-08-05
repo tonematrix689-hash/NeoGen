@@ -19,6 +19,7 @@ from .plugins import PluginManager
 from .projects import ProjectIntelligence
 from .puter import register_puter_provider
 from .storage import SQLiteStore
+from .subscriptions import SubscriptionService
 from .terminal import TerminalService
 from .tools import ToolRegistry
 from .verification import VerificationEngine
@@ -46,6 +47,7 @@ class NeoGenKernel:
     game: GameService
     planning: PlanningEngine
     verification: VerificationEngine
+    subscriptions: SubscriptionService
 
     @classmethod
     def build(
@@ -73,6 +75,7 @@ class NeoGenKernel:
         game = GameService(storage, events)
         planning = PlanningEngine(permissions, tools, events)
         verification = VerificationEngine(events)
+        subscriptions = SubscriptionService(storage, events)
 
         if enable_puter:
             register_puter_provider(tools, permissions, events)
@@ -96,6 +99,7 @@ class NeoGenKernel:
             game=game,
             planning=planning,
             verification=verification,
+            subscriptions=subscriptions,
         )
         kernel.events.publish(
             "KernelBuilt",
@@ -136,4 +140,5 @@ class NeoGenKernel:
             "tools": self.tools.stats(),
             "planning": self.planning.stats(),
             "verification": self.verification.stats(),
+            "subscriptions": self.subscriptions.stats(),
         }
