@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0610">
+  <title>NeoGen</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://js.puter.com/v2/" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <canvas id="matrix" aria-hidden="true"></canvas>
+  <div class="water-sheen" aria-hidden="true"></div>
+  <div class="app-shell">
+    <aside class="sidebar glass">
+      <div class="brand-row">
+        <div class="brand-mark">N</div>
+        <div><h1>NeoGen</h1><p>Silica Core</p></div>
+      </div>
+      <button class="primary-btn" id="newChat">+ New session</button>
+      <nav class="nav-list" aria-label="Workspace sections">
+        <button class="nav-item active" data-view="chat">Chat</button>
+        <button class="nav-item" data-view="workspace">Repository</button>
+        <button class="nav-item" data-view="permissions">Permissions</button>
+        <button class="nav-item" data-view="activity">Activity</button>
+      </nav>
+      <div class="sidebar-status">
+        <span class="status-dot"></span>
+        <div><strong>Local core online</strong><small>GitHub actions require permission</small></div>
+      </div>
+    </aside>
+
+    <main class="main-panel glass">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">NEOGEN MATRIX</p>
+          <h2 id="viewTitle">Intelligence Console</h2>
+        </div>
+        <div class="top-actions">
+          <select id="modelSelect" aria-label="AI model">
+            <option value="gpt-5-nano">GPT-5 Nano</option>
+            <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
+            <option value="claude-sonnet-4">Claude Sonnet 4</option>
+          </select>
+          <button class="ghost-btn" id="accountBtn">Account</button>
+        </div>
+      </header>
+
+      <section class="view active" id="chatView">
+        <div class="hero-card">
+          <span class="gold-chip">96% SILICA · 4% WATER</span>
+          <h3>Command the system.<br><em>Keep control.</em></h3>
+          <p>NeoGen can reason, review code, plan fixes, and prepare repository changes. Every sensitive action remains permission-gated and confirmable.</p>
+        </div>
+        <div class="messages" id="messages" aria-live="polite">
+          <article class="message assistant"><div class="avatar">N</div><div><strong>NeoGen</strong><p>System ready. Ask me to inspect code, explain an error, plan a feature, or prepare a repository update.</p></div></article>
+        </div>
+        <form class="composer" id="chatForm">
+          <textarea id="prompt" rows="1" placeholder="Message NeoGen…" aria-label="Message NeoGen"></textarea>
+          <button class="send-btn" type="submit" aria-label="Send">↑</button>
+        </form>
+      </section>
+
+      <section class="view" id="workspaceView">
+        <div class="split-grid">
+          <section class="panel-card repo-panel">
+            <div class="panel-heading"><div><p class="eyebrow">CONNECTED SOURCE</p><h3>Repository workspace</h3></div><button class="ghost-btn" id="connectGithub">Connect GitHub</button></div>
+            <div class="repo-controls"><input id="repoName" value="tonematrix689-hash/NeoGen" aria-label="Repository"><input id="branchName" value="agent/neogen-web-app" aria-label="Branch"></div>
+            <div class="file-tree" id="fileTree">
+              <button data-file="package.json">◇ package.json</button>
+              <button data-file="server.js">◇ server.js</button>
+              <button data-file="public/index.html">◇ public/index.html</button>
+              <button data-file="public/style.css">◇ public/style.css</button>
+              <button data-file="public/app.js">◇ public/app.js</button>
+            </div>
+          </section>
+          <section class="panel-card editor-panel">
+            <div class="panel-heading"><div><p class="eyebrow">EDITOR</p><h3 id="activeFile">Select a file</h3></div><button class="primary-btn" id="proposeChange">Propose change</button></div>
+            <textarea id="editor" spellcheck="false" placeholder="File content will appear here…"></textarea>
+            <div class="editor-footer"><span>Changes are staged locally until approved.</span><button class="danger-btn" id="commitChange">Commit with approval</button></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="permissionsView">
+        <div class="panel-card permissions-card">
+          <div class="panel-heading"><div><p class="eyebrow">CONSENT LAYER</p><h3>User permissions</h3></div><span class="gold-chip">Explicit approval required</span></div>
+          <div class="permission-grid" id="permissionGrid"></div>
+          <div class="full-control-row"><div><strong>Full account control</strong><p>Enables all capability toggles, but never bypasses confirmations for destructive, financial, publishing, deployment, or security-sensitive actions.</p></div><label class="switch"><input type="checkbox" id="fullControl"><span></span></label></div>
+        </div>
+      </section>
+
+      <section class="view" id="activityView">
+        <div class="panel-card">
+          <div class="panel-heading"><div><p class="eyebrow">AUDIT TRAIL</p><h3>Recent activity</h3></div><button class="ghost-btn" id="clearLog">Clear local log</button></div>
+          <div id="activityLog" class="activity-log"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <dialog id="confirmDialog">
+    <form method="dialog" class="dialog-card">
+      <span class="gold-chip">SENSITIVE ACTION</span>
+      <h3>Confirm repository change</h3>
+      <p id="confirmText">NeoGen is requesting permission to commit a change.</p>
+      <div class="dialog-actions"><button value="cancel" class="ghost-btn">Cancel</button><button value="confirm" class="danger-btn">Approve once</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
