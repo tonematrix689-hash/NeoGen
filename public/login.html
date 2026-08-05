@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08050f">
+  <title>Sign in · NeoGen</title>
+  <link rel="stylesheet" href="/login.css">
+  <script src="/login.js" defer></script>
+</head>
+<body>
+  <div class="auth-backdrop" aria-hidden="true"></div>
+  <main class="auth-shell">
+    <section class="auth-card" aria-labelledby="authTitle">
+      <div class="brand-mark">N</div>
+      <p class="eyebrow">NEOGEN · SILICA CORE</p>
+      <h1 id="authTitle">Welcome back</h1>
+      <p class="auth-copy" id="authCopy">Sign in to continue to your private NeoGen workspace.</p>
+
+      <form id="authForm" novalidate>
+        <label>Email
+          <input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
+        </label>
+        <label>Password
+          <input id="password" name="password" type="password" autocomplete="current-password" minlength="10" required placeholder="At least 10 characters">
+        </label>
+        <button class="primary-action" id="submitButton" type="submit">Continue</button>
+      </form>
+
+      <p class="error-message" id="authError" role="alert" aria-live="polite"></p>
+      <div class="auth-divider"><span>secure local account</span></div>
+      <button class="secondary-action" id="toggleMode" type="button">Create an account</button>
+      <p class="security-note">Passwords are hashed locally. NeoGen never stores the plain-text password in the repository.</p>
+    </section>
+  </main>
+</body>
+</html>
