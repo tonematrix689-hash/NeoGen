@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#080b13">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/neogen-icon.svg">
+  <link rel="stylesheet" href="./assets/neogen.css">
+  <title>NeoGen Workspace</title>
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"></div>
+  <section id="auth" class="auth-card glass">
+    <div class="mark">N</div><p class="eyebrow">NEO GENESIS AFTERLIFE</p><h1>Enter NeoGen</h1>
+    <p class="muted">One workspace for VERA, code, learning, analytics, plugins, and the evolving universe.</p>
+    <input id="apiBase" value="/api/v1" aria-label="API endpoint">
+    <input id="email" type="email" placeholder="Email" autocomplete="email">
+    <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+    <input id="displayName" class="hidden" placeholder="Display name" autocomplete="name">
+    <div class="row"><button id="login">Sign in</button><button id="register" class="secondary">Create account</button></div>
+    <div id="authError" class="error" role="alert"></div>
+  </section>
+
+  <div id="app" class="shell hidden">
+    <aside class="sidebar glass">
+      <div class="brand"><div class="mark small">N</div><div><strong>NeoGen</strong><small>Operating workspace</small></div></div>
+      <nav id="nav">
+        <button data-view="chat" class="active">✦ VERA Chat</button>
+        <button data-view="repository">⌘ Repository</button>
+        <button data-view="editor">◫ Monaco Editor</button>
+        <button data-view="workspace">◇ AI Workspace</button>
+        <button data-view="academy">◉ Academy</button>
+        <button data-view="analytics">▥ Analytics</button>
+        <button data-view="plugins">⬡ Plugins</button>
+        <button data-view="settings">⚙ Settings</button>
+      </nav>
+      <div class="sidebar-footer"><span id="connectionDot"></span><span id="connectionStatus">Connecting</span><button id="logout" class="link-button">Log out</button></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar glass"><button id="menu" class="icon">☰</button><div><p class="eyebrow">HUMAN + MACHINE SYMBIOSIS</p><h2 id="viewTitle">VERA Chat</h2></div><button id="puterConnect" class="secondary">Connect Puter</button></header>
+
+      <section id="chat" class="view active">
+        <aside class="conversation-pane glass"><button id="newConversation">＋ New conversation</button><div id="conversationList"></div></aside>
+        <div class="chat-pane"><div id="messages" class="messages"></div><form id="chatForm" class="composer glass"><textarea id="chatPrompt" rows="1" placeholder="Ask VERA anything…"></textarea><select id="modelSelect"><option value="">Auto model</option></select><button type="submit">Send</button></form></div>
+      </section>
+
+      <section id="repository" class="view">
+        <div class="toolbar glass"><input id="repoSearch" placeholder="Filter repository files"><button id="refreshRepo">Refresh</button></div>
+        <div class="split"><aside id="repoTree" class="panel glass"></aside><article class="panel glass"><h3 id="repoFileTitle">Select a file</h3><pre id="repoPreview">Repository contents appear here.</pre></article></div>
+      </section>
+
+      <section id="editor" class="view">
+        <div class="toolbar glass"><input id="editorPath" placeholder="path/to/file.py"><button id="loadEditor">Open</button><button id="saveEditor">Save</button><button id="aiExplain">Explain</button><button id="aiImprove">Improve</button></div>
+        <div class="editor-layout"><div id="monacoHost" class="monaco-host"></div><textarea id="fallbackEditor" spellcheck="false" aria-label="Code editor"></textarea><pre id="terminalOutput">NeoGen governed terminal ready.</pre></div>
+      </section>
+
+      <section id="workspace" class="view"><div id="workspaceGrid" class="card-grid"></div></section>
+      <section id="academy" class="view"><div class="hero-card glass"><p class="eyebrow">NEOGEN ACADEMY</p><h1>Learn by building with VERA</h1><p class="muted">Adaptive lessons, project tracks, and AI tutoring backed by Puter storage.</p></div><div id="academyGrid" class="card-grid"></div></section>
+      <section id="analytics" class="view"><div id="analyticsGrid" class="metric-grid"></div><div class="panel glass"><h3>Capability health</h3><pre id="capabilityReport"></pre></div></section>
+      <section id="plugins" class="view"><div class="toolbar glass"><input id="pluginSearch" placeholder="Search plugins"><button id="refreshPlugins">Refresh</button></div><div id="pluginGrid" class="card-grid"></div></section>
+      <section id="settings" class="view"><form id="settingsForm" class="settings glass"><label>Theme<select id="theme"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select></label><label>Preferred model<input id="preferredModel" placeholder="e.g. gpt-5"></label><label><input id="streamResponses" type="checkbox" checked> Stream AI responses</label><label><input id="cloudSync" type="checkbox" checked> Sync preferences with Puter KV</label><button type="submit">Save settings</button><p id="settingsStatus" class="muted"></p></form></section>
+    </main>
+  </div>
+
+  <template id="cardTemplate"><article class="card glass"><div class="card-icon"></div><h3></h3><p></p><button></button></article></template>
+  <template id="messageTemplate"><article class="message"><div class="avatar"></div><div><strong></strong><p></p></div></article></template>
+
+  <script src="https://js.puter.com/v2/"></script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+  <script src="./assets/puter-platform.js"></script>
+  <script src="./assets/neogen.js" defer></script>
+</body>
+</html>
