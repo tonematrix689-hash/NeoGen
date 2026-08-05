@@ -49,7 +49,7 @@ class LearningService:
 
     async def start(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.database_path)
+        connection = sqlite3.connect(self.database_path, check_same_thread=False)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.executescript(
