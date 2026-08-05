@@ -38,6 +38,8 @@
     selectedPlan: localStorage.getItem("neogenSelectedPlan") || "level-1",
     subscription: null,
     abilities: new Set(),
+    forgeAvatars: [],
+    forgeAvatar: null,
   };
 
   const LEGAL_VERSION = "2026-08-05.1";
@@ -374,6 +376,54 @@
       {
         type: "function",
         function: {
+          name: "search_conversation_memory",
+          description: "Search the user's previous NeoGen conversations for relevant decisions, attempts, constraints, and outcomes.",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string", description: "Specific text to find in prior conversations." } },
+            required: ["query"],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "prepare_verified_improvement",
+          description: "Apply a complete multi-file NeoGen source improvement after one bundled user approval, then automatically run every supplied verification command and roll back all changes if any check fails. Read every target file first and use its exact sha256.",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: {
+              goal: { type: "string", description: "Concrete improvement outcome and acceptance criteria." },
+              changes: {
+                type: "array", minItems: 1,
+                items: {
+                  type: "object",
+                  properties: {
+                    path: { type: "string" },
+                    content: { type: "string", description: "Complete replacement content." },
+                    expected_sha256: { type: "string", description: "SHA-256 returned by read_workspace_file, or missing for a new file." },
+                  },
+                  required: ["path", "content", "expected_sha256"],
+                  additionalProperties: false,
+                },
+              },
+              verification_commands: {
+                type: "array", minItems: 1,
+                items: { type: "array", items: { type: "string" }, minItems: 1 },
+                description: "Argument-vector checks to run automatically after applying the change.",
+              },
+            },
+            required: ["goal", "changes", "verification_commands"],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
           name: "write_workspace_file",
           description: "Write a complete local workspace file after the user approves the exact path and content once.",
           strict: true,
@@ -464,6 +514,43 @@
       return { snapshot, ...details };
     }
     if (name === "get_system_health") return request("/health");
+    if (name === "search_conversation_memory") {
+      return request(`/conversations/search?q=${encodeURIComponent(String(args.query || ""))}&limit=20`);
+    }
+    if (name === "prepare_verified_improvement") {
+      const payload = {
+        goal: String(args.goal || ""),
+        changes: Array.isArray(args.changes) ? args.changes : [],
+        verification_commands: Array.isArray(args.verification_commands) ? args.verification_commands : [],
+      };
+      const plan = await request("/guarded/improvements/prepare", {
+        method: "POST", body: JSON.stringify(payload),
+      });
+      const commands = payload.verification_commands.map((command) => command.join(" "));
+      const approved = await requestUserApproval({
+        title: "Apply and verify NeoGen improvement",
+        summary: plan.approval.summary,
+        scope: [
+          `${plan.code_proposal.files.length} exact source change(s)`,
+          `${commands.length} automatic verification check(s): ${commands.join(" · ")}`,
+          "Create a recovery checkpoint and roll back automatically on failure",
+        ],
+      });
+      await decideApproval(plan.approval.id, approved);
+      if (!approved) return { denied: true, diff: plan.code_proposal.diff };
+      try {
+        const result = await request("/guarded/improvements/execute", {
+          method: "POST", body: JSON.stringify({ plan_id: plan.id }),
+        });
+        completeAction(result.state === "succeeded", result.state === "succeeded"
+          ? `Improvement verified · checkpoint ${result.checkpoint_id}`
+          : `Improvement ${result.state}: ${result.error || "verification failed"}`);
+        return { ...result, diff: plan.code_proposal.diff, verification_commands: commands };
+      } catch (error) {
+        completeAction(false, error.message);
+        throw error;
+      }
+    }
     if (name === "write_workspace_file") {
       const payload = { path: String(args.path || ""), content: String(args.content || "") };
       return executeApprovedTool(
@@ -1330,7 +1417,7 @@
       .map((message) => ({ role: message.role, content: message.content }));
     const system = {
       role: "system",
-      content: "You are Neo, the Puter-powered human–AI symbiosis intelligence at the center of NeoGen. Work toward the user's requested outcome, including multi-step research, writing, coding, form preparation, and connected workflows. Use available tools when they materially help. Read-only tools may run directly. Every write, submission, terminal, Git, cloud-save, publish, or other mutation must remain visible to the user and use NeoGen's exact one-time approval. Never claim an action succeeded unless its tool result confirms success. Preserve project continuity, verification, recovery, and the endlessly expanding Afterlife design principle.",
+      content: "You are Neo, the Puter-powered human–AI symbiosis intelligence at the center of NeoGen. Work toward the user's requested outcome, including multi-step research, writing, coding, form preparation, and connected workflows. Search conversation memory when prior decisions, constraints, attempts, or outcomes may matter. For coding and bug fixing, inspect the repository, list and read relevant source and tests, then prefer prepare_verified_improvement so the user approves the complete diff and verification suite once; it applies, tests, and rolls back automatically. Use separate mutation tools only when a verified improvement bundle is inappropriate. Read-only tools may run directly. Every mutation must remain visible. Never claim success unless its tool result confirms success. Preserve project continuity, verification, recovery, owner authority, and the endlessly expanding Afterlife design principle.",
     };
     const tools = neoGenToolDefinitions();
     if (state.model && /(^|\/)(gpt-|openai)/i.test(state.model)) tools.push({ type: "web_search" });
@@ -1607,8 +1694,9 @@
   async function loadEconomy() {
     if (!state.token) return;
     try {
-      const [wallet, inventory] = await Promise.all([request("/wallet"), request("/inventory")]);
+      const [wallet, inventory, cotd, forge] = await Promise.all([request("/wallet"), request("/inventory"), request("/cotd"), request("/forge/avatars")]);
       $("balance").textContent = wallet.balance;
+      $("cotdTerms").textContent = `${cotd.terms.reference_rate} · development ledger only`;
       $("inventory").innerHTML = "";
       if (!inventory.items.length) $("inventory").innerHTML = '<span class="muted">No persistent items yet.</span>';
       for (const item of inventory.items) {
@@ -1617,6 +1705,73 @@
         row.textContent = `${item.name} · rarity ${item.rarity}`;
         $("inventory").appendChild(row);
       }
+      state.forgeAvatars = forge.items || [];
+      renderForge();
+    } catch (error) { toast(error.message, true); }
+  }
+
+  function renderForge() {
+    const select = $("forgeAvatarSelect");
+    const chosen = select.value || state.forgeAvatar?.id || state.forgeAvatars[0]?.id || "";
+    select.replaceChildren(new Option("Create an avatar first", ""));
+    state.forgeAvatars.forEach((avatar) => select.add(new Option(`${avatar.name} · rarity ${avatar.rarity_level}`, avatar.id)));
+    select.value = state.forgeAvatars.some((avatar) => avatar.id === chosen) ? chosen : (state.forgeAvatars[0]?.id || "");
+    state.forgeAvatar = state.forgeAvatars.find((avatar) => avatar.id === select.value) || null;
+    const root = $("forgePreview");
+    if (!state.forgeAvatar) { root.innerHTML = '<span class="muted">Your layered avatar blueprint will appear here.</span>'; return; }
+    const avatar = state.forgeAvatar;
+    root.replaceChildren();
+    const title = document.createElement("strong"); title.textContent = `${avatar.name} · rarity ${avatar.rarity_level}/1000`;
+    const origin = document.createElement("p"); origin.textContent = avatar.origin_prompt;
+    root.append(title, origin);
+    Object.values(avatar.layers || {}).forEach((layer) => {
+      const item = document.createElement("div"); item.className = "forge-layer";
+      const label = document.createElement("b"); label.textContent = `${layer.type} · ${layer.cost} COTD`;
+      const text = document.createElement("span"); text.textContent = layer.design_prompt;
+      item.append(label, text); root.appendChild(item);
+    });
+  }
+
+  async function createForgeAvatar() {
+    try {
+      const avatar = await request("/forge/avatars", { method: "POST", body: JSON.stringify({ name: $("forgeName").value, prompt: $("forgePrompt").value }) });
+      state.forgeAvatar = avatar; await loadEconomy(); toast("Forge avatar draft created");
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function designForgeLayer() {
+    if (!state.forgeAvatar) { toast("Create or select a forge avatar first.", true); return; }
+    if (!state.puterUser) { toast("Connect Puter so VERA can design this layer.", true); return; }
+    const layer = $("forgeLayerType").value;
+    try {
+      const text = await puterClient.chat([
+        { role: "system", content: "You are VERA's fantasy avatar designer. Design only the requested anatomical or equipment layer. Respect the origin and user direction. Return a vivid, concise build description followed by one line beginning ABILITIES: with up to four comma-separated abilities. Do not claim minting, ownership, blockchain status, or payment." },
+        { role: "user", content: `Avatar origin: ${state.forgeAvatar.origin_prompt}\nLayer: ${layer}\nDirection: ${$("forgeLayerPrompt").value || "Invent the best fitting design."}` },
+      ], state.model ? { model: state.model } : {});
+      const match = text.match(/ABILITIES:\s*(.+)$/im);
+      $("forgeLayerAbilities").value = match?.[1]?.trim() || "";
+      $("forgeLayerPrompt").value = text.replace(/ABILITIES:\s*.+$/im, "").trim();
+      toast("VERA designed an editable layer draft");
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function mintForgeLayer() {
+    if (!state.forgeAvatar) { toast("Create or select a forge avatar first.", true); return; }
+    try {
+      await executeApprovedTool("/guarded/forge/layers/request", "/guarded/forge/layers/apply", {
+        avatar_id: state.forgeAvatar.id, layer_type: $("forgeLayerType").value,
+        design_prompt: $("forgeLayerPrompt").value,
+        abilities: $("forgeLayerAbilities").value.split(",").map((value) => value.trim()).filter(Boolean),
+      }, "Mint avatar layer with COTD");
+      await Promise.all([loadEconomy(), loadDashboard()]);
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function upgradeForgeRarity() {
+    if (!state.forgeAvatar) { toast("Create or select a forge avatar first.", true); return; }
+    try {
+      await executeApprovedTool("/guarded/forge/upgrade/request", "/guarded/forge/upgrade/apply", { avatar_id: state.forgeAvatar.id }, "Upgrade avatar rarity with COTD");
+      await Promise.all([loadEconomy(), loadDashboard()]);
     } catch (error) { toast(error.message, true); }
   }
 
@@ -2244,6 +2399,11 @@
     });
     $("refreshDashboard").onclick = () => Promise.allSettled([loadDashboard(), loadHealth()]);
     $("saveAvatar").onclick = saveAvatar;
+    $("createForgeAvatar").onclick = createForgeAvatar;
+    $("forgeAvatarSelect").onchange = () => { state.forgeAvatar = state.forgeAvatars.find((avatar) => avatar.id === $("forgeAvatarSelect").value) || null; renderForge(); };
+    $("designForgeLayer").onclick = designForgeLayer;
+    $("mintForgeLayer").onclick = mintForgeLayer;
+    $("upgradeForgeRarity").onclick = upgradeForgeRarity;
     all("[data-world-action]").forEach((button) => button.onclick = () => toast(`${button.dataset.worldAction} queued for the next connected world simulation.`));
     all(".academy-start").forEach((button) => button.onclick = () => {
       switchView("chatView", "Neo");

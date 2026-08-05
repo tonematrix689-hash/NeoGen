@@ -57,6 +57,9 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/legal/catalog": self._send(HTTPStatus.OK, {"items": self.kernel.legal.catalog(), "configuration": self.kernel.legal.public_configuration()}); return
             if path == "/api/v1/auth/me": self._send(HTTPStatus.OK, self._authenticated_user()); return
             user = self._authenticated_user()
+            if path == "/api/v1/cotd": self._send(HTTPStatus.OK,{"wallet":self.kernel.game.wallet(user.id),"terms":self.kernel.game.coin_terms()}); return
+            if path == "/api/v1/cotd/quote": self._send(HTTPStatus.OK,self.kernel.game.quote_coins(int(query.get("aud_cents",["0"])[0]))); return
+            if path == "/api/v1/forge/avatars": self._send(HTTPStatus.OK,{"items":self.kernel.game.forge_avatars(user.id),"layers":self.kernel.game.forge_layers,"max_rarity":self.kernel.game.max_rarity}); return
             if path == "/api/v1/subscriptions/current": self._send(HTTPStatus.OK, self.kernel.subscriptions.current(user.id)); return
             if path == "/api/v1/legal/status": self._send(HTTPStatus.OK, self.kernel.legal.current_acceptance(user.id)); return
             if path == "/api/v1/avatar": self._send(HTTPStatus.OK, self.kernel.game.get_or_create_avatar(user.id)); return
@@ -65,6 +68,10 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/wallet/transactions": self._send(HTTPStatus.OK, {"items": self.kernel.game.transactions(user.id)}); return
             if path == "/api/v1/marketplace": self._send(HTTPStatus.OK, {"items": self.kernel.game.listings()}); return
             if path == "/api/v1/conversations": self._send(HTTPStatus.OK, {"items": self.kernel.conversations.list(user_id=user.id)}); return
+            if path == "/api/v1/conversations/search":
+                term=query.get("q",[""])[0]
+                if not term: raise ApiError(HTTPStatus.BAD_REQUEST,"q is required")
+                self._send(HTTPStatus.OK,{"items":self.kernel.conversations.search(user_id=user.id,query=term,limit=int(query.get("limit",["20"])[0]))}); return
             conversation_id = self._conversation_path(path, "/messages")
             if conversation_id:
                 self._send(HTTPStatus.OK, {"conversation": self.kernel.conversations.get(conversation_id,user_id=user.id),"items":self.kernel.conversations.messages(conversation_id,user_id=user.id)}); return
@@ -113,6 +120,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
                 self._send(HTTPStatus.OK,self.kernel.game.credit(str(payload.get("user_id") or user.id),int(payload.get("amount",0)),reason=str(payload.get("reason","reward")))); return
             if path == "/api/v1/marketplace/list": self._send(HTTPStatus.CREATED,self.kernel.game.create_listing(user.id,name=self._required(payload,"name"),description=str(payload.get("description","")),price=int(payload.get("price",0)),item=dict(payload.get("item",{})))); return
             if path == "/api/v1/marketplace/purchase": self._send(HTTPStatus.OK,self.kernel.game.purchase(user.id,self._required(payload,"listing_id"))); return
+            if path == "/api/v1/forge/avatars": self._send(HTTPStatus.CREATED,self.kernel.game.create_forge_avatar(user.id,name=self._required(payload,"name"),prompt=self._required(payload,"prompt"))); return
             if path == "/api/v1/conversations": self._send(HTTPStatus.CREATED,self.kernel.conversations.create(user_id=user.id,title=str(payload.get("title","New conversation")))); return
             conversation_id=self._conversation_path(path,"/chat")
             if conversation_id:

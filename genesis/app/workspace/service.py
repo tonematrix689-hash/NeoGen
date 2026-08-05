@@ -204,3 +204,6 @@ class WorkspaceService:
 
     async def execute_improvement(self, plan: ImprovementPlan) -> ImprovementResult:
         return await self.improvement.execute(plan)
+
+    def improvement_plan(self, plan_id: str) -> ImprovementPlan:
+        return self.improvement.get(plan_id)

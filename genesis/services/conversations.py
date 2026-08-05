@@ -135,6 +135,29 @@ class ConversationService:
         ]
         return tuple(sorted(messages, key=lambda item: item.created_at))
 
+    def search(self, *, user_id: str, query: str, limit: int = 20) -> tuple[dict[str, Any], ...]:
+        needle = self._required(query, "query").casefold()
+        if not 1 <= limit <= 100:
+            raise ConversationError("limit must be between 1 and 100")
+        owned = {item.id: item for item in self.list(user_id=user_id)}
+        matches: list[dict[str, Any]] = []
+        for record in self._store.list(self.message_namespace, limit=10_000):
+            message = self._message_from_payload(record.value)
+            conversation = owned.get(message.conversation_id)
+            if conversation is None or needle not in message.content.casefold():
+                continue
+            matches.append(
+                {
+                    "conversation_id": conversation.id,
+                    "conversation_title": conversation.title,
+                    "role": message.role,
+                    "content": message.content,
+                    "created_at": message.created_at,
+                }
+            )
+        matches.sort(key=lambda item: item["created_at"], reverse=True)
+        return tuple(matches[:limit])
+
     def add_message(
         self,
         *,

@@ -254,7 +254,7 @@
             <div class="card-grid">
               <article class="panel-card"><span class="tag">Workspace</span><div class="stat" id="dashFiles">0<small>files</small></div><p>Source currently available to the governed local runtime.</p></article>
               <article class="panel-card"><span class="tag">Identity</span><div class="stat" id="dashLevel">1<small>level</small></div><p id="dashAvatar">Your evolving NeoGen identity core.</p></article>
-              <article class="panel-card"><span class="tag">Economy</span><div class="stat" id="dashBalance">0<small>ACoin</small></div><p><span id="dashItems">0</span> persistent inventory items.</p></article>
+              <article class="panel-card"><span class="tag">Economy</span><div class="stat" id="dashBalance">0<small>COTD</small></div><p><span id="dashItems">0</span> persistent inventory items.</p></article>
               <article class="panel-card wide"><h2>System intelligence</h2><div id="healthSummary"><div class="status-row"><span>Genesis runtime</span><span class="tag">Connect to inspect</span></div><div class="status-row"><span>Puter AI</span><span class="tag">Browser execution</span></div><div class="status-row"><span>Approval boundary</span><span class="tag">Exact + single-use</span></div></div></article>
               <article class="panel-card"><h2>Persistent growth</h2><p>Every verified capability becomes a foundation for the next one. NeoGen and Afterlife remain open-ended by design.</p><button class="ghost-button" data-view="afterlifeView" data-title="Afterlife">Enter Afterlife</button></article>
               <article class="panel-card full"><h2>Event stream</h2><pre id="healthOutput" class="repo-log" style="max-height:340px">Connect the local runtime to inspect health.</pre></article>
@@ -272,9 +272,18 @@
             </div>
             <div class="card-grid" style="margin-top:14px">
               <article class="panel-card"><h3>Identity core</h3><input id="avatarName" placeholder="Avatar name"><textarea id="avatarAppearance" rows="5" placeholder='{"aura":"violet"}' style="padding:10px;margin-top:8px"></textarea><button id="saveAvatar" class="primary-button" style="margin-top:10px">Save identity</button></article>
-              <article class="panel-card"><h3>Progression</h3><div class="stat"><span id="avatarLevel">1</span><small>avatar level</small></div><p>One hundred rarity bands, modular body segments, equipment, and legacy-linked evolution.</p></article>
-              <article class="panel-card"><h3>Inventory + economy</h3><div class="stat"><span id="balance">0</span><small>ACoin</small></div><div id="inventory" class="cloud-list"><span class="muted">No persistent items yet.</span></div></article>
+              <article class="panel-card"><h3>Progression</h3><div class="stat"><span id="avatarLevel">1</span><small>avatar level</small></div><p>1,000 rarity levels, modular anatomy, equipment, powers, and legacy-linked evolution.</p></article>
+              <article class="panel-card"><h3>Coins of the Dead</h3><div class="stat"><span id="balance">0</span><small>COTD</small></div><p id="cotdTerms" class="muted">Development ledger · 100 COTD = AUD 1 reference only.</p><div id="inventory" class="cloud-list"><span class="muted">No persistent items yet.</span></div></article>
             </div>
+            <section class="forge-shell" aria-labelledby="forgeTitle">
+              <div class="forge-head"><div><div class="eyebrow">AI avatar workshop</div><h2 id="forgeTitle">Coins of the Dead Forge</h2><p>Describe anything imaginable. VERA builds the avatar in editable stages before you approve each mint.</p></div><span class="tag">Development · no cash-out</span></div>
+              <div class="forge-grid">
+                <article class="panel-card"><h3>1 · Origin</h3><input id="forgeName" placeholder="Avatar name"><textarea id="forgePrompt" rows="5" placeholder="An octopus-headed guardian with six arms, hooves, antlers and a comet tail…"></textarea><button id="createForgeAvatar" class="primary-button">Create draft</button><label for="forgeAvatarSelect">Your forge avatars</label><select id="forgeAvatarSelect"><option value="">Create an avatar first</option></select></article>
+                <article class="panel-card"><h3>2 · Design a layer with VERA</h3><label for="forgeLayerType">Layer</label><select id="forgeLayerType"><option>bones</option><option>muscle</option><option>skin</option><option>armor</option><option>weapons</option><option>accessories</option><option>appendages</option></select><textarea id="forgeLayerPrompt" rows="4" placeholder="Describe this layer, or let VERA extend the origin prompt…"></textarea><input id="forgeLayerAbilities" placeholder="Abilities, comma separated"><div class="forge-actions"><button id="designForgeLayer" class="ghost-button">Ask VERA to design</button><button id="mintForgeLayer" class="primary-button">Review & mint</button></div></article>
+                <article class="panel-card forge-preview-card"><h3>3 · Evolve</h3><div id="forgePreview" class="forge-preview"><span class="muted">Your layered avatar blueprint will appear here.</span></div><button id="upgradeForgeRarity" class="approve-button">Review rarity upgrade</button></article>
+              </div>
+              <p class="forge-notice">COTD is currently a closed-loop development simulation. Buying, cash redemption, peer transfer, and blockchain settlement are disabled.</p>
+            </section>
           </div></div>
         </section>
 

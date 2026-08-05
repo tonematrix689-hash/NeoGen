@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import mimetypes
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer
@@ -21,6 +22,7 @@ from genesis.api.server import ApiError, NeoGenApiHandler
 from genesis.app.composition import create_workspace_runtime
 from genesis.app.kernel import GenesisSettings
 from genesis.app.workspace import WorkspaceService
+from genesis.app.coding import CodeChange
 from genesis.services.kernel import NeoGenKernel
 
 
@@ -65,6 +67,28 @@ class TabletHandler(NeoGenApiHandler):
             except Exception as exc:
                 self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
             return
+        if path == "/api/v1/guarded/code":
+            try:
+                self._authenticated_user()
+                self._send(HTTPStatus.OK, {"items": self.guarded_workspace.code_inventory()})
+            except ApiError as exc:
+                self._send(exc.status, {"error": str(exc)})
+            except Exception as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+            return
+        if path == "/api/v1/guarded/code/read":
+            try:
+                self._authenticated_user()
+                query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
+                target = unquote(query.get("path", ""))
+                if not target:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "path is required")
+                self._send(HTTPStatus.OK, self.guarded_workspace.read_code(target))
+            except ApiError as exc:
+                self._send(exc.status, {"error": str(exc)})
+            except Exception as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+            return
         if path.startswith("/api/"):
             super().do_GET()
             return
@@ -95,6 +119,87 @@ class TabletHandler(NeoGenApiHandler):
                     self._required(payload, "approval_id"),
                 )
                 self._send(HTTPStatus.OK, {"path": result})
+                return
+            if path == "/api/v1/guarded/forge/layers/request":
+                action = self._forge_layer_action(payload)
+                avatar = self.kernel.game.forge_avatar(user.id, self._required(payload, "avatar_id"))
+                cost = self.kernel.game.layer_cost(int(avatar["rarity_level"]), self._required(payload, "layer_type"))
+                request = self.guarded_workspace.permissions.request(
+                    project_id, "forge.layer", f"Spend {cost} COTD to forge the {payload['layer_type']} layer", action=action
+                )
+                self._send(HTTPStatus.ACCEPTED, request)
+                return
+            if path == "/api/v1/guarded/forge/layers/apply":
+                action = self._forge_layer_action(payload)
+                self.guarded_workspace.permissions.consume(
+                    self._required(payload, "approval_id"), project_id, "forge.layer", action=action
+                )
+                result = self.kernel.game.add_forge_layer(
+                    user.id, self._required(payload, "avatar_id"),
+                    layer_type=self._required(payload, "layer_type"),
+                    design_prompt=self._required(payload, "design_prompt"),
+                    abilities=tuple(payload.get("abilities", ())),
+                )
+                self._send(HTTPStatus.CREATED, result)
+                return
+            if path == "/api/v1/guarded/forge/upgrade/request":
+                avatar_id = self._required(payload, "avatar_id")
+                avatar = self.kernel.game.forge_avatar(user.id, avatar_id)
+                cost = self.kernel.game.rarity_upgrade_cost(int(avatar["rarity_level"]))
+                action = json.dumps({"avatar_id": avatar_id, "from": avatar["rarity_level"], "cost": cost}, sort_keys=True)
+                request = self.guarded_workspace.permissions.request(
+                    project_id, "forge.upgrade", f"Spend {cost} COTD to upgrade rarity {avatar['rarity_level']} → {int(avatar['rarity_level']) + 1}", action=action
+                )
+                self._send(HTTPStatus.ACCEPTED, request)
+                return
+            if path == "/api/v1/guarded/forge/upgrade/apply":
+                avatar_id = self._required(payload, "avatar_id")
+                avatar = self.kernel.game.forge_avatar(user.id, avatar_id)
+                cost = self.kernel.game.rarity_upgrade_cost(int(avatar["rarity_level"]))
+                action = json.dumps({"avatar_id": avatar_id, "from": avatar["rarity_level"], "cost": cost}, sort_keys=True)
+                self.guarded_workspace.permissions.consume(
+                    self._required(payload, "approval_id"), project_id, "forge.upgrade", action=action
+                )
+                self._send(HTTPStatus.OK, self.kernel.game.upgrade_forge_avatar(user.id, avatar_id))
+                return
+            if path == "/api/v1/guarded/improvements/prepare":
+                raw_changes = payload.get("changes")
+                raw_commands = payload.get("verification_commands")
+                if not isinstance(raw_changes, list) or not raw_changes:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "changes must be a non-empty list")
+                if not isinstance(raw_commands, list) or not raw_commands:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "verification_commands must be a non-empty list")
+                changes = tuple(
+                    CodeChange(
+                        self._required(item, "path"),
+                        str(item.get("content", "")),
+                        self._required(item, "expected_sha256"),
+                    )
+                    for item in raw_changes
+                    if isinstance(item, dict)
+                )
+                commands = tuple(
+                    tuple(command)
+                    for command in raw_commands
+                    if isinstance(command, list) and command and all(isinstance(arg, str) for arg in command)
+                )
+                if len(changes) != len(raw_changes) or len(commands) != len(raw_commands):
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid change or verification command")
+                plan = self.guarded_workspace.prepare_improvement(
+                    project_id,
+                    self._required(payload, "goal"),
+                    changes,
+                    commands,
+                    strategy=str(payload.get("strategy", "vera-verified-edit")),
+                )
+                self._send(HTTPStatus.ACCEPTED, plan)
+                return
+            if path == "/api/v1/guarded/improvements/execute":
+                plan = self.guarded_workspace.improvement_plan(self._required(payload, "plan_id"))
+                if plan.project_id != project_id:
+                    raise ApiError(HTTPStatus.FORBIDDEN, "Improvement belongs to another user")
+                result = asyncio.run(self.guarded_workspace.execute_improvement(plan))
+                self._send(HTTPStatus.OK, result)
                 return
             if path == "/api/v1/guarded/terminal/request":
                 command = payload.get("command")
@@ -169,6 +274,22 @@ class TabletHandler(NeoGenApiHandler):
             return None
         encoded = path[len(prefix):-len(suffix)].strip("/")
         return unquote(encoded) or None
+
+    @staticmethod
+    def _forge_layer_action(payload: dict[str, object]) -> str:
+        abilities = payload.get("abilities", [])
+        if not isinstance(abilities, list) or not all(isinstance(item, str) for item in abilities):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "abilities must be a string list")
+        return json.dumps(
+            {
+                "avatar_id": str(payload.get("avatar_id", "")),
+                "layer_type": str(payload.get("layer_type", "")),
+                "design_prompt": str(payload.get("design_prompt", "")),
+                "abilities": abilities,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     def _serve_static(self, request_path: str) -> None:
         relative = request_path.lstrip("/") or "index.html"

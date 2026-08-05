@@ -157,6 +157,55 @@ class GuardedTabletWorkspaceTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 0)
         self.assertIn("approved", result["stdout"])
 
+    def test_verified_improvement_uses_one_approval_and_runs_checks(self) -> None:
+        source = self.workspace / "value.py"
+        source.write_text("VALUE = 1\n", encoding="utf-8")
+        inspected = self.request_json(
+            "GET", "/guarded/code/read?path=value.py", authenticated=True
+        )
+        plan = self.post(
+            "/guarded/improvements/prepare",
+            {
+                "goal": "Raise the verified value",
+                "changes": [{
+                    "path": "value.py",
+                    "content": "VALUE = 2\n",
+                    "expected_sha256": inspected["sha256"],
+                }],
+                "verification_commands": [[
+                    sys.executable, "-c", "import value; assert value.VALUE == 2",
+                ]],
+            },
+            authenticated=True,
+        )
+        self.post(
+            "/guarded/approvals/decide",
+            {"approval_id": plan["approval"]["id"], "approved": True},
+            authenticated=True,
+        )
+        result = self.post(
+            "/guarded/improvements/execute",
+            {"plan_id": plan["id"]},
+            authenticated=True,
+        )
+        self.assertEqual(result["state"], "succeeded")
+        self.assertEqual(source.read_text(encoding="utf-8"), "VALUE = 2\n")
+        self.assertEqual(len(result["verification_results"]), 1)
+
+    def test_cross_conversation_memory_search_is_user_scoped(self) -> None:
+        first = self.post("/conversations", {"title": "Architecture"}, authenticated=True)
+        encoded = first["id"].replace(":", "%3A")
+        self.post(
+            f"/conversations/{encoded}/chat",
+            {"prompt": "Keep the recovery checkpoint before every verified edit"},
+            authenticated=True,
+        )
+        found = self.request_json(
+            "GET", "/conversations/search?q=recovery%20checkpoint", authenticated=True
+        )
+        self.assertEqual(len(found["items"]), 1)
+        self.assertEqual(found["items"][0]["conversation_title"], "Architecture")
+
     def test_conversation_history_can_be_renamed_and_deleted(self) -> None:
         conversation = self.post(
             "/conversations", {"title": "New conversation"}, authenticated=True
@@ -227,6 +276,9 @@ class GuardedTabletWorkspaceTests(unittest.TestCase):
         self.assertIn("loadSubscription", client)
         self.assertIn("settingsLocalIdentity", client)
         self.assertIn("Level 12 · Owner", client)
+        self.assertIn("prepare_verified_improvement", client)
+        self.assertIn("search_conversation_memory", client)
+        self.assertIn("one bundled user approval", client)
 
         styles = self.get_text("/assets/neogen.css")
         self.assertIn("Silica Matrix landing", styles)
@@ -263,6 +315,68 @@ class GuardedTabletWorkspaceTests(unittest.TestCase):
         self.assertEqual(activated["plan_id"], "level-9")
         current = self.request_json("GET", "/subscriptions/current", authenticated=True)
         self.assertIn("agent_council", current["plan"]["abilities"])
+
+    def test_forge_spending_requires_exact_single_use_approval(self) -> None:
+        avatar = self.post(
+            "/forge/avatars",
+            {"name": "Sixfold", "prompt": "A six-armed antlered guardian"},
+            authenticated=True,
+        )
+        action = {
+            "avatar_id": avatar["id"],
+            "layer_type": "bones",
+            "design_prompt": "A branching luminous skeleton",
+            "abilities": ["six-limb coordination"],
+        }
+        approval = self.post("/guarded/forge/layers/request", action, authenticated=True)
+
+        with self.assertRaises(HTTPError) as unapproved:
+            self.post(
+                "/guarded/forge/layers/apply",
+                {**action, "approval_id": approval["id"]},
+                authenticated=True,
+            )
+        self.assertEqual(unapproved.exception.code, 400)
+        self.post(
+            "/guarded/approvals/decide",
+            {"approval_id": approval["id"], "approved": True},
+            authenticated=True,
+        )
+        with self.assertRaises(HTTPError) as substituted:
+            self.post(
+                "/guarded/forge/layers/apply",
+                {**action, "design_prompt": "Substituted", "approval_id": approval["id"]},
+                authenticated=True,
+            )
+        self.assertEqual(substituted.exception.code, 400)
+
+        forged = self.post(
+            "/guarded/forge/layers/apply",
+            {**action, "approval_id": approval["id"]},
+            authenticated=True,
+        )
+        self.assertEqual(forged["layers"]["bones"]["cost"], 30)
+        wallet = self.request_json("GET", "/wallet", authenticated=True)
+        self.assertEqual(wallet["balance"], 970)
+
+        upgrade = self.post(
+            "/guarded/forge/upgrade/request", {"avatar_id": avatar["id"]}, authenticated=True
+        )
+        self.post(
+            "/guarded/approvals/decide",
+            {"approval_id": upgrade["id"], "approved": True},
+            authenticated=True,
+        )
+        evolved = self.post(
+            "/guarded/forge/upgrade/apply",
+            {"avatar_id": avatar["id"], "approval_id": upgrade["id"]},
+            authenticated=True,
+        )
+        self.assertEqual(evolved["rarity_level"], 2)
+
+        with self.assertRaises(HTTPError) as direct:
+            self.post("/forge/upgrade", {"avatar_id": avatar["id"]}, authenticated=True)
+        self.assertEqual(direct.exception.code, 404)
 
 
 if __name__ == "__main__":
