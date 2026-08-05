@@ -6,14 +6,16 @@
   <meta name="theme-color" content="#070913">
   <meta name="description" content="NeoGen is a governed human–AI workspace and an endlessly evolving Afterlife universe.">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="icon" href="./icons/neogen-icon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="./icons/neogen-icon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/neogen-icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/neogen-icon-192.png">
   <link rel="stylesheet" href="./assets/neogen.css">
   <title>NeoGen — Human + AI</title>
 </head>
 <body>
   <section id="auth" class="landing-shell">
     <header class="landing-nav">
-      <a class="landing-brand" href="#landingTop" aria-label="NeoGen home"><span class="brand-mark">N</span><span><strong>NeoGen</strong><small>Symbiosis intelligence</small></span></a>
+      <a class="landing-brand" href="#landingTop" aria-label="NeoGen home"><span class="brand-mark"><img src="./icons/neogen-icon-192.png" alt=""></span><span><strong>NeoGen</strong><small>Symbiosis intelligence</small></span></a>
       <nav aria-label="Landing navigation"><a href="#capabilities">Capabilities</a><a href="#levels">Levels</a><a href="#organizations">Business</a></nav>
       <button id="openAccess" class="ghost-button">Enter NeoGen</button>
     </header>
@@ -33,7 +35,7 @@
           <div class="orbit orbit-red"><i></i></div>
           <div class="orbit orbit-purple"><i></i></div>
           <div class="orbit orbit-gold"><i></i></div>
-          <div class="silica-core"><span>N</span><small>SiO₂ CORE</small></div>
+          <div class="silica-core" data-crest-core><img src="./assets/neogen-logo.webp" alt="Neo Genesis Afterlife — hooded guardian and dragon crest"></div>
           <div class="core-caption"><strong>Neo is ready</strong><span>Plan · approve · act · verify</span></div>
         </div>
       </section>
@@ -76,7 +78,7 @@
         <div class="access-story"><div class="eyebrow">Enter the silica matrix</div><h2>Start with Neo. Connect deeper abilities when you need them.</h2><p>Puter supplies user-authorized AI and cloud storage. The local Genesis runtime supplies governed source, Git, terminal, verification, and recovery.</p><div class="access-trust"><span>Silver-line audit trail</span><span>No browser-stored Git tokens</span><span>Exact single-use approvals</span></div></div>
         <div class="auth-panel">
           <div class="auth-card">
-            <div class="auth-brand"><span class="brand-mark">N</span><strong>NeoGen</strong></div>
+            <div class="auth-brand"><span class="brand-mark"><img src="./icons/neogen-icon-192.png" alt=""></span><strong>NeoGen</strong></div>
             <div id="planSelection" class="plan-selection"><span>Selected plan</span><strong id="selectedPlanName">Level 1 · Spark</strong></div>
             <h2>Enter your workspace</h2>
             <p class="muted">Use Puter for AI and cloud capabilities. Connect the local Genesis runtime for files, Git, terminal, subscriptions, and recovery.</p>
@@ -89,6 +91,7 @@
               <div class="field"><label for="displayName">Display name <span class="muted">(new accounts)</span></label><input id="displayName" autocomplete="name" placeholder="NeoGen creator"></div>
               <div class="local-actions"><button id="login" class="primary-button">Connect runtime</button><button id="register" class="ghost-button">Create account</button></div>
               <details><summary class="muted">Advanced local connection</summary><div class="field" style="margin-top:10px"><label for="apiBase">API address</label><input id="apiBase" value="/api/v1" aria-label="NeoGen API address"></div></details>
+              <label class="legal-consent"><input id="legalAcceptance" type="checkbox"><span>I confirm I am at least 18 and agree to the <a href="./legal.html#terms" target="_blank">Terms</a>, <a href="./legal.html#privacy" target="_blank">Privacy Notice</a>, <a href="./legal.html#acceptable-use" target="_blank">Acceptable Use Policy</a>, and <a href="./legal.html#ai-transparency" target="_blank">AI Transparency Notice</a>.</span></label>
               <div id="authError" class="danger" role="alert"></div>
             </div>
             <p class="auth-meta">Paid plan requests remain pending until a configured billing provider confirms activation. Sensitive local actions always show an exact approval. <a href="https://developer.puter.com" target="_blank" rel="noreferrer">Powered by Puter</a>.</p>
@@ -96,13 +99,13 @@
         </div>
       </section>
     </main>
-    <footer class="landing-footer"><div class="landing-brand"><span class="brand-mark">N</span><span><strong>NeoGen</strong><small>Human + AI, evolving together</small></span></div><p>Built for persistent growth, visible consent, and an Afterlife universe with no final edge.</p></footer>
+    <footer class="landing-footer"><div class="landing-brand"><span class="brand-mark"><img src="./icons/neogen-icon-192.png" alt=""></span><span><strong>NeoGen</strong><small>Human + AI, evolving together</small></span></div><p>Built for persistent growth, visible consent, and an Afterlife universe with no final edge. <a href="./legal.html">Legal centre</a></p></footer>
   </section>
 
   <div id="appShell" class="app-shell hidden">
     <aside id="sidebar" class="sidebar" aria-label="NeoGen navigation">
       <div class="sidebar-head">
-        <div class="sidebar-brand"><span class="brand-mark">N</span><span>NeoGen</span></div>
+        <div class="sidebar-brand"><span class="brand-mark"><img src="./icons/neogen-icon-192.png" alt=""></span><span>NeoGen</span></div>
         <button id="closeSidebar" class="icon-button" aria-label="Close sidebar">×</button>
       </div>
       <button id="newChat" class="ghost-button new-chat"><span>New conversation</span><span>＋</span></button>
@@ -131,7 +134,7 @@
       </div>
       <div class="sidebar-foot">
         <button id="profileButton" class="profile-button" data-view="settingsView" data-title="Settings">
-          <span id="profileAvatar" class="profile-avatar">N</span>
+          <span id="profileAvatar" class="profile-avatar"><img src="./icons/neogen-icon-192.png" alt=""></span>
           <span class="profile-copy"><strong id="profileName">NeoGen creator</strong><span id="profileMode">Connecting…</span></span>
           <span class="muted">···</span>
         </button>
@@ -159,7 +162,7 @@
                 <div id="conversation" class="conversation">
                   <div id="emptyState" class="empty-state">
                     <div>
-                      <div class="empty-orb">N</div>
+                      <div class="empty-orb"><img src="./icons/neogen-icon-512.png" alt="NeoGen crest"></div>
                       <div class="symbiosis-label"><span></span>Symbiosis intelligence</div>
                       <h1>Tell Neo the outcome.<br>It handles the process.</h1>
                       <p>Research, write, build, browse, fill fields, and operate connected tools from one Puter-powered conversation. Neo pauses at the exact moment your approval matters.</p>
@@ -370,6 +373,7 @@
               <div class="settings-row"><div><h3>Puter identity</h3><p id="settingsPuterIdentity">Not connected</p></div><button id="settingsPuterLogin" class="ghost-button">Connect Puter</button></div>
               <div class="settings-row"><div><h3>Preferred AI model</h3><p>Choose any model returned by Puter, or leave routing automatic.</p></div><select id="settingsModel"><option value="">Puter Auto</option></select></div>
               <div class="settings-row"><div><h3>NeoGen subscription</h3><p id="settingsPlanSummary">Level 1 · Spark — Neo chat and conversation memory.</p></div><button id="managePlan" class="ghost-button">View all levels</button></div>
+              <div class="settings-row"><div><h3>Legal, privacy, and AI transparency</h3><p id="settingsLegalSummary">Version 2026-08-05 · review terms, data rights, acceptable use, subscriptions, accessibility, and regional notices.</p></div><a class="ghost-button landing-link" href="./legal.html" target="_blank">Open legal centre</a></div>
               <section class="settings-catalog">
                 <div class="settings-catalog-head"><div><div class="eyebrow">All plans</div><h2>Subscription levels</h2></div><span class="tag">14 visible options</span></div>
                 <div id="settingsPlanGrid" class="settings-plan-grid" aria-live="polite"></div>

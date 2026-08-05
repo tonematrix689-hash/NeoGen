@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from genesis.services.conversations import ConversationError
 from genesis.services.game import GameError
 from genesis.services.identity import IdentityError
+from genesis.services.legal import LegalError
 from genesis.services.kernel import NeoGenKernel
 from genesis.services.permissions import PermissionScope
 from genesis.services.subscriptions import SubscriptionError
@@ -41,7 +42,7 @@ def _jsonable(value: Any) -> Any:
 
 class NeoGenApiHandler(BaseHTTPRequestHandler):
     kernel: NeoGenKernel
-    server_version = "NeoGenAPI/0.5"
+    server_version = "NeoGenAPI/0.6"
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(HTTPStatus.NO_CONTENT); self._cors_headers(); self.end_headers()
@@ -53,9 +54,11 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
                 self._send(HTTPStatus.OK, {"name":"NeoGen API","version":"v1","server":self.server_version}); return
             if path == "/api/v1/health": self._send(HTTPStatus.OK, self.kernel.health()); return
             if path == "/api/v1/subscriptions/catalog": self._send(HTTPStatus.OK, {"items": self.kernel.subscriptions.catalog()}); return
+            if path == "/api/v1/legal/catalog": self._send(HTTPStatus.OK, {"items": self.kernel.legal.catalog(), "configuration": self.kernel.legal.public_configuration()}); return
             if path == "/api/v1/auth/me": self._send(HTTPStatus.OK, self._authenticated_user()); return
             user = self._authenticated_user()
             if path == "/api/v1/subscriptions/current": self._send(HTTPStatus.OK, self.kernel.subscriptions.current(user.id)); return
+            if path == "/api/v1/legal/status": self._send(HTTPStatus.OK, self.kernel.legal.current_acceptance(user.id)); return
             if path == "/api/v1/avatar": self._send(HTTPStatus.OK, self.kernel.game.get_or_create_avatar(user.id)); return
             if path == "/api/v1/inventory": self._send(HTTPStatus.OK, {"items": self.kernel.game.inventory(user.id)}); return
             if path == "/api/v1/wallet": self._send(HTTPStatus.OK, self.kernel.game.wallet(user.id)); return
@@ -91,6 +94,10 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/auth/logout": self.kernel.identity.logout(self._bearer_token()); self._send(HTTPStatus.OK,{"logged_out":True}); return
             user=self._authenticated_user()
             if path == "/api/v1/subscriptions/request": self._send(HTTPStatus.ACCEPTED,self.kernel.subscriptions.request(user.id,self._required(payload,"plan_id"))); return
+            if path == "/api/v1/legal/acceptance":
+                documents=payload.get("documents")
+                if not isinstance(documents,dict): raise ApiError(HTTPStatus.BAD_REQUEST,"documents must be an object of document versions")
+                self._send(HTTPStatus.CREATED,self.kernel.legal.accept(user.id,documents,age_confirmed=bool(payload.get("age_confirmed")),locale=str(payload.get("locale", "")),source=str(payload.get("source", "web")))); return
             if path == "/api/v1/subscriptions/activate":
                 if "admin" not in user.roles: raise ApiError(HTTPStatus.FORBIDDEN,"Admin role required")
                 target_id=str(payload.get("user_id") or user.id); plan_id=self._required(payload,"plan_id"); target=self.kernel.identity.get_user(target_id)
@@ -129,7 +136,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             raise ApiError(HTTPStatus.NOT_FOUND,"Endpoint not found")
         except ApiError as exc: self._send(exc.status,{"error":str(exc)})
         except IdentityError as exc: self._send(HTTPStatus.UNAUTHORIZED,{"error":str(exc)})
-        except (ConversationError,WorkspaceError,TerminalError,GameError,SubscriptionError) as exc: self._send(HTTPStatus.BAD_REQUEST,{"error":str(exc)})
+        except (ConversationError,WorkspaceError,TerminalError,GameError,SubscriptionError,LegalError) as exc: self._send(HTTPStatus.BAD_REQUEST,{"error":str(exc)})
         except Exception as exc: self._send(HTTPStatus.BAD_REQUEST,{"error":f"{type(exc).__name__}: {exc}"})
 
     def do_PATCH(self) -> None:  # noqa: N802

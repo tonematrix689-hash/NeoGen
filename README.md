@@ -1,5 +1,11 @@
 # Genesis / Afterlife Neogenesis
 
+<p align="center"><img src="web/assets/neogen-logo.webp" alt="Neo Genesis Afterlife — hooded guardian and dragon crest" width="520"></p>
+
+The hooded guardian and dragon crest is NeoGen's primary project logo. Text-free application icons
+are generated from the same visual identity under `web/icons/` for browser, PWA, tablet, and
+maskable launcher use.
+
 Genesis is an AI operating system kernel built around services, capabilities, and applications.
 
 The kernel owns runtime startup, shutdown, logging, events, dependency injection, service discovery,
@@ -59,6 +65,20 @@ persists active entitlements and pending plan requests without accepting payment
 Level 1 activates automatically; paid requests remain pending until an explicitly configured
 billing provider or an administrator confirms activation, so the interface never mistakes a plan
 selection for a completed charge.
+
+## International legal and trust framework
+
+NeoGen ships a versioned legal centre covering Terms, privacy, AI transparency, acceptable use,
+subscriptions and cancellations, cookies, accessibility, security, incident response, intellectual
+property/takedown, data processing, subprocessors, and regional notices. The API exposes the current
+catalogue and records acceptance against exact mandatory-document versions. See
+[`docs/legal/README.md`](docs/legal/README.md) and the user-facing `web/legal.html`.
+
+The operator's identity, address, governing law, privacy/security/support contacts, payment provider,
+and actual hosting regions are mandatory deployment configuration. Until those fields are complete,
+NeoGen reports that public commerce is not legally configured and paid plans remain pending. The
+framework is a compliance baseline and launch gate, not a substitute for qualified market-specific
+legal review.
 
 When the configured workspace is a Git checkout, NeoGen also exposes repository status, history,
 diffs, branches, commits, fetches, pushes, merges, and other Git operations. Inspection is read-only;

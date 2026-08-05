@@ -11,6 +11,7 @@ from .conversations import ConversationService
 from .events import EventBus
 from .game import GameService
 from .identity import IdentityService
+from .legal import LegalService
 from .memory import MemoryEngine
 from .models import ModelRouter
 from .permissions import PermissionManager
@@ -48,6 +49,7 @@ class NeoGenKernel:
     planning: PlanningEngine
     verification: VerificationEngine
     subscriptions: SubscriptionService
+    legal: LegalService
 
     @classmethod
     def build(
@@ -76,6 +78,7 @@ class NeoGenKernel:
         planning = PlanningEngine(permissions, tools, events)
         verification = VerificationEngine(events)
         subscriptions = SubscriptionService(storage, events)
+        legal = LegalService(storage, events)
 
         if enable_puter:
             register_puter_provider(tools, permissions, events)
@@ -100,6 +103,7 @@ class NeoGenKernel:
             planning=planning,
             verification=verification,
             subscriptions=subscriptions,
+            legal=legal,
         )
         kernel.events.publish(
             "KernelBuilt",
@@ -141,4 +145,5 @@ class NeoGenKernel:
             "planning": self.planning.stats(),
             "verification": self.verification.stats(),
             "subscriptions": self.subscriptions.stats(),
+            "legal": self.legal.stats(),
         }

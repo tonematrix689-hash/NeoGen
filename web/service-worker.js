@@ -1,12 +1,17 @@
-const CACHE_NAME = 'neogen-pwa-v3';
+const CACHE_NAME = 'neogen-pwa-v4-crest';
 const APP_SHELL = [
   './',
   './pwa.html',
   './index.html',
+  './legal.html',
   './assets/neogen.css',
   './assets/neogen.js',
+  './assets/neogen-logo.webp',
   './manifest.webmanifest',
-  './icons/neogen-icon.svg'
+  './icons/neogen-icon-32.png',
+  './icons/neogen-icon-192.png',
+  './icons/neogen-icon-512.png',
+  './icons/neogen-icon-maskable-512.png'
 ];
 
 self.addEventListener('install', (event) => {

@@ -40,6 +40,14 @@
     abilities: new Set(),
   };
 
+  const LEGAL_VERSION = "2026-08-05";
+  const MANDATORY_LEGAL_DOCUMENTS = {
+    terms: LEGAL_VERSION,
+    privacy: LEGAL_VERSION,
+    "acceptable-use": LEGAL_VERSION,
+    "ai-transparency": LEGAL_VERSION,
+  };
+
   const PLAN_LABELS = {
     "level-1": "Level 1 · Spark",
     "level-2": "Level 2 · Signal",
@@ -661,7 +669,7 @@
   function updateProfile() {
     const identity = state.localUser?.display_name || state.puterUser?.username || "NeoGen creator";
     $("profileName").textContent = identity;
-    $("profileAvatar").textContent = identity.slice(0, 1).toUpperCase();
+    $("profileAvatar").title = identity;
     $("profileMode").textContent = state.token ? "Puter + local Genesis" : "Puter cloud mode";
     $("settingsPuterIdentity").textContent = state.puterUser ? `Connected as @${state.puterUser.username}` : "Not connected";
     $("settingsPuterLogin").textContent = state.puterUser ? "Puter connected" : "Connect Puter";
@@ -682,7 +690,9 @@
 
   async function connectPuter(enter = true) {
     try {
+      if (enter && !legalConsentConfirmed()) throw new Error("Confirm the current legal notices and adult eligibility before entering NeoGen.");
       state.puterUser = await puterClient.signIn();
+      localStorage.setItem("neogenLegalVersion", LEGAL_VERSION);
       $("puterIdentity").textContent = `Puter connected as @${state.puterUser.username}`;
       updateProfile();
       if (enter) await enterApp();
@@ -695,6 +705,7 @@
   async function localLogin(register = false) {
     $("authError").textContent = "";
     try {
+      if (!legalConsentConfirmed()) throw new Error("Confirm the current legal notices and adult eligibility before entering NeoGen.");
       if (register) {
         await requestUnauthenticated("/auth/register", {
           email: $("email").value,
@@ -709,6 +720,7 @@
       state.token = session.token;
       localStorage.setItem("neogenToken", state.token);
       state.localUser = await request("/auth/me");
+      await recordLegalAcceptance();
       let planRequest = null;
       if (state.selectedPlan !== "level-1") {
         planRequest = await request("/subscriptions/request", {
@@ -721,6 +733,28 @@
         toast(`${PLAN_LABELS[state.selectedPlan]} request saved. Billing activation is still required.`);
       }
     } catch (error) { $("authError").textContent = error.message; }
+  }
+
+  function legalConsentConfirmed() {
+    return Boolean($("legalAcceptance")?.checked) || localStorage.getItem("neogenLegalVersion") === LEGAL_VERSION;
+  }
+
+  async function recordLegalAcceptance() {
+    if (!state.token) {
+      localStorage.setItem("neogenLegalVersion", LEGAL_VERSION);
+      return;
+    }
+    await request("/legal/acceptance", {
+      method: "POST",
+      body: JSON.stringify({
+        documents: MANDATORY_LEGAL_DOCUMENTS,
+        age_confirmed: true,
+        locale: navigator.language || "",
+        source: "neogen-web",
+      }),
+    });
+    localStorage.setItem("neogenLegalVersion", LEGAL_VERSION);
+    if ($("settingsLegalSummary")) $("settingsLegalSummary").textContent = `Accepted version ${LEGAL_VERSION} · manage privacy and regional rights in the Legal Centre.`;
   }
 
   async function requestUnauthenticated(path, payload) {
@@ -2236,6 +2270,7 @@
 
   async function initialize() {
     bindEvents();
+    if ($("legalAcceptance") && localStorage.getItem("neogenLegalVersion") === LEGAL_VERSION) $("legalAcceptance").checked = true;
     updatePlanSelection();
     initializeMonaco();
     const savedApi = localStorage.getItem("neogenApiBase");
