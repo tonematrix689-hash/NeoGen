@@ -33,6 +33,28 @@ class ConversationTurn:
     created_at: str
 
 
+@dataclass(frozen=True, slots=True)
+class DecisionRecord:
+    id: str
+    project_id: str
+    statement: str
+    context: str
+    source: str
+    confidence: float
+    status: str
+    outcome: str | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class AutonomyAssessment:
+    risk: float
+    mode: str
+    approval_required: bool
+    reason: str
+
+
 class MemoryService:
     """Durable, inspectable memory scoped by project and conversation."""
 
@@ -67,6 +89,20 @@ class MemoryService:
             );
             CREATE INDEX IF NOT EXISTS idx_conversation_scope
                 ON conversation_turns(project_id, conversation_id, created_at);
+            CREATE TABLE IF NOT EXISTS personal_decisions (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                statement TEXT NOT NULL,
+                context TEXT NOT NULL,
+                source TEXT NOT NULL,
+                confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+                status TEXT NOT NULL CHECK(status IN ('active', 'superseded', 'revoked')),
+                outcome TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_personal_decisions_scope
+                ON personal_decisions(project_id, status, updated_at);
             """
         )
         connection.commit()
@@ -139,6 +175,74 @@ class MemoryService:
             ).fetchall()
         return tuple(self._memory(row) for row in rows)
 
+    def record_decision(
+        self, project_id: str, statement: str, *, context: str = "",
+        source: str = "user", confidence: float = 1.0,
+    ) -> DecisionRecord:
+        for name, value in (("project_id", project_id), ("statement", statement), ("source", source)):
+            self._validate_text(name, value)
+        confidence = float(confidence)
+        if not 0 <= confidence <= 1:
+            raise ValueError("confidence must be between 0 and 1")
+        now = _now()
+        decision = DecisionRecord(
+            str(uuid4()), project_id, statement.strip(), context.strip(), source.strip(),
+            confidence, "active", None, now, now,
+        )
+        with self._lock:
+            connection = self._require_connection()
+            connection.execute(
+                "INSERT INTO personal_decisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(decision.__dict__.values()) if hasattr(decision, "__dict__") else (
+                    decision.id, decision.project_id, decision.statement, decision.context,
+                    decision.source, decision.confidence, decision.status, decision.outcome,
+                    decision.created_at, decision.updated_at,
+                ),
+            )
+            connection.commit()
+        return decision
+
+    def decisions(self, project_id: str, *, include_revoked: bool = False) -> tuple[DecisionRecord, ...]:
+        clause = "" if include_revoked else " AND status != 'revoked'"
+        with self._lock:
+            rows = self._require_connection().execute(
+                f"SELECT * FROM personal_decisions WHERE project_id = ?{clause} ORDER BY updated_at DESC",
+                (project_id,),
+            ).fetchall()
+        return tuple(self._decision(row) for row in rows)
+
+    def update_decision(self, project_id: str, decision_id: str, *, outcome: str | None = None, revoke: bool = False) -> DecisionRecord:
+        with self._lock:
+            connection = self._require_connection()
+            row = connection.execute(
+                "SELECT * FROM personal_decisions WHERE id = ? AND project_id = ?", (decision_id, project_id)
+            ).fetchone()
+            if row is None:
+                raise ValueError("decision not found")
+            status = "revoked" if revoke else row["status"]
+            clean_outcome = outcome.strip() if outcome is not None else row["outcome"]
+            connection.execute(
+                "UPDATE personal_decisions SET outcome = ?, status = ?, updated_at = ? WHERE id = ?",
+                (clean_outcome, status, _now(), decision_id),
+            )
+            connection.commit()
+            updated = connection.execute("SELECT * FROM personal_decisions WHERE id = ?", (decision_id,)).fetchone()
+        return self._decision(updated)
+
+    @staticmethod
+    def assess_autonomy(risk: float, *, affects_others: bool = False, irreversible: bool = False, sensitive: bool = False) -> AutonomyAssessment:
+        score = float(risk)
+        if not 0 <= score <= 1:
+            raise ValueError("risk must be between 0 and 1")
+        score = min(1.0, score + (0.2 if affects_others else 0) + (0.35 if irreversible else 0) + (0.25 if sensitive else 0))
+        if score < 0.2:
+            return AutonomyAssessment(score, "observe", False, "Record evidence without changing the user's world")
+        if score < 0.45:
+            return AutonomyAssessment(score, "advise", False, "Offer a recommendation; the user decides")
+        if score < 0.75:
+            return AutonomyAssessment(score, "prepare", True, "Prepare the exact action and request approval once")
+        return AutonomyAssessment(score, "human_only", True, "High-impact action requires explicit human control")
+
     def _require_connection(self) -> sqlite3.Connection:
         if self._connection is None:
             raise RuntimeError("Memory service is not started.")
@@ -157,4 +261,11 @@ class MemoryService:
     def _turn(row: sqlite3.Row) -> ConversationTurn:
         return ConversationTurn(
             row["id"], row["project_id"], row["conversation_id"], row["role"], row["content"], row["created_at"]
+        )
+
+    @staticmethod
+    def _decision(row: sqlite3.Row) -> DecisionRecord:
+        return DecisionRecord(
+            row["id"], row["project_id"], row["statement"], row["context"], row["source"],
+            float(row["confidence"]), row["status"], row["outcome"], row["created_at"], row["updated_at"],
         )

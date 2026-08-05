@@ -8,7 +8,7 @@ from genesis.app.coding import CodeChange, CodeFile, CodeFileSummary, CodePropos
 from genesis.app.improvement import ImprovementPlan, ImprovementResult, SelfImprovementService
 from genesis.app.kernel.registry import ServiceRegistry
 from genesis.app.learning import LearningService, OutcomeRecord, StrategyScore
-from genesis.app.memory import ConversationTurn, MemoryRecord, MemoryService
+from genesis.app.memory import AutonomyAssessment, ConversationTurn, DecisionRecord, MemoryRecord, MemoryService
 from genesis.app.research import ResearchResult, WebPage, WebResearchTool
 from genesis.app.repository import RepositoryResult, RepositoryService, RepositorySnapshot
 from genesis.app.security import ApprovalRequest, PermissionEngine
@@ -72,6 +72,18 @@ class WorkspaceService:
 
     def conversation(self, project_id: str, conversation_id: str) -> tuple[ConversationTurn, ...]:
         return self.memory.conversation(project_id, conversation_id)
+
+    def record_decision(self, project_id: str, statement: str, **kwargs: object) -> DecisionRecord:
+        return self.memory.record_decision(project_id, statement, **kwargs)
+
+    def decisions(self, project_id: str, *, include_revoked: bool = False) -> tuple[DecisionRecord, ...]:
+        return self.memory.decisions(project_id, include_revoked=include_revoked)
+
+    def update_decision(self, project_id: str, decision_id: str, **kwargs: object) -> DecisionRecord:
+        return self.memory.update_decision(project_id, decision_id, **kwargs)
+
+    def assess_autonomy(self, risk: float, **kwargs: bool) -> AutonomyAssessment:
+        return self.memory.assess_autonomy(risk, **kwargs)
 
     def request_file_write(self, project_id: str, relative_path: str, content: str) -> ApprovalRequest:
         return self.files.request_write(project_id, relative_path, content)

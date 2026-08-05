@@ -378,6 +378,31 @@ class GuardedTabletWorkspaceTests(unittest.TestCase):
             self.post("/forge/upgrade", {"avatar_id": avatar["id"]}, authenticated=True)
         self.assertEqual(direct.exception.code, 404)
 
+    def test_decision_symbiosis_is_owner_scoped_and_risk_adaptive(self) -> None:
+        decision = self.post(
+            "/guarded/symbiosis/decisions",
+            {"statement": "Prefer reversible changes", "context": "NeoGen releases", "confidence": 0.9},
+            authenticated=True,
+        )
+        listed = self.request_json("GET", "/guarded/symbiosis/decisions", authenticated=True)
+        self.assertEqual(listed["items"][0]["id"], decision["id"])
+        assessed = self.post(
+            "/guarded/symbiosis/assess",
+            {"risk": 0.3, "sensitive": True, "irreversible": True},
+            authenticated=True,
+        )
+        self.assertEqual(assessed["mode"], "human_only")
+        self.assertTrue(assessed["approval_required"])
+        revoked = self.post(
+            "/guarded/symbiosis/decisions/update",
+            {"decision_id": decision["id"], "revoke": True},
+            authenticated=True,
+        )
+        self.assertEqual(revoked["status"], "revoked")
+        self.assertEqual(
+            self.request_json("GET", "/guarded/symbiosis/decisions", authenticated=True)["items"], []
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

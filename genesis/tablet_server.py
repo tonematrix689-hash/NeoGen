@@ -89,6 +89,13 @@ class TabletHandler(NeoGenApiHandler):
             except Exception as exc:
                 self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
             return
+        if path == "/api/v1/guarded/symbiosis/decisions":
+            try:
+                user = self._authenticated_user()
+                self._send(HTTPStatus.OK, {"items": self.guarded_workspace.decisions(user.id)})
+            except Exception as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+            return
         if path.startswith("/api/"):
             super().do_GET()
             return
@@ -103,6 +110,31 @@ class TabletHandler(NeoGenApiHandler):
             user = self._authenticated_user()
             payload = self._read_json()
             project_id = user.id
+            if path == "/api/v1/guarded/symbiosis/decisions":
+                decision = self.guarded_workspace.record_decision(
+                    project_id, self._required(payload, "statement"),
+                    context=str(payload.get("context", "")), source="user",
+                    confidence=float(payload.get("confidence", 1.0)),
+                )
+                self._send(HTTPStatus.CREATED, decision)
+                return
+            if path == "/api/v1/guarded/symbiosis/decisions/update":
+                decision = self.guarded_workspace.update_decision(
+                    project_id, self._required(payload, "decision_id"),
+                    outcome=str(payload["outcome"]) if payload.get("outcome") is not None else None,
+                    revoke=bool(payload.get("revoke", False)),
+                )
+                self._send(HTTPStatus.OK, decision)
+                return
+            if path == "/api/v1/guarded/symbiosis/assess":
+                result = self.guarded_workspace.assess_autonomy(
+                    float(payload.get("risk", 0)),
+                    affects_others=bool(payload.get("affects_others", False)),
+                    irreversible=bool(payload.get("irreversible", False)),
+                    sensitive=bool(payload.get("sensitive", False)),
+                )
+                self._send(HTTPStatus.OK, result)
+                return
             if path == "/api/v1/guarded/files/request-write":
                 request = self.guarded_workspace.request_file_write(
                     project_id,
