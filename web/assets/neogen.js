@@ -374,6 +374,54 @@
       {
         type: "function",
         function: {
+          name: "search_conversation_memory",
+          description: "Search the user's previous NeoGen conversations for relevant decisions, attempts, constraints, and outcomes.",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string", description: "Specific text to find in prior conversations." } },
+            required: ["query"],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "prepare_verified_improvement",
+          description: "Apply a complete multi-file NeoGen source improvement after one bundled user approval, then automatically run every supplied verification command and roll back all changes if any check fails. Read every target file first and use its exact sha256.",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: {
+              goal: { type: "string", description: "Concrete improvement outcome and acceptance criteria." },
+              changes: {
+                type: "array", minItems: 1,
+                items: {
+                  type: "object",
+                  properties: {
+                    path: { type: "string" },
+                    content: { type: "string", description: "Complete replacement content." },
+                    expected_sha256: { type: "string", description: "SHA-256 returned by read_workspace_file, or missing for a new file." },
+                  },
+                  required: ["path", "content", "expected_sha256"],
+                  additionalProperties: false,
+                },
+              },
+              verification_commands: {
+                type: "array", minItems: 1,
+                items: { type: "array", items: { type: "string" }, minItems: 1 },
+                description: "Argument-vector checks to run automatically after applying the change.",
+              },
+            },
+            required: ["goal", "changes", "verification_commands"],
+            additionalProperties: false,
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
           name: "write_workspace_file",
           description: "Write a complete local workspace file after the user approves the exact path and content once.",
           strict: true,
@@ -464,6 +512,43 @@
       return { snapshot, ...details };
     }
     if (name === "get_system_health") return request("/health");
+    if (name === "search_conversation_memory") {
+      return request(`/conversations/search?q=${encodeURIComponent(String(args.query || ""))}&limit=20`);
+    }
+    if (name === "prepare_verified_improvement") {
+      const payload = {
+        goal: String(args.goal || ""),
+        changes: Array.isArray(args.changes) ? args.changes : [],
+        verification_commands: Array.isArray(args.verification_commands) ? args.verification_commands : [],
+      };
+      const plan = await request("/guarded/improvements/prepare", {
+        method: "POST", body: JSON.stringify(payload),
+      });
+      const commands = payload.verification_commands.map((command) => command.join(" "));
+      const approved = await requestUserApproval({
+        title: "Apply and verify NeoGen improvement",
+        summary: plan.approval.summary,
+        scope: [
+          `${plan.code_proposal.files.length} exact source change(s)`,
+          `${commands.length} automatic verification check(s): ${commands.join(" · ")}`,
+          "Create a recovery checkpoint and roll back automatically on failure",
+        ],
+      });
+      await decideApproval(plan.approval.id, approved);
+      if (!approved) return { denied: true, diff: plan.code_proposal.diff };
+      try {
+        const result = await request("/guarded/improvements/execute", {
+          method: "POST", body: JSON.stringify({ plan_id: plan.id }),
+        });
+        completeAction(result.state === "succeeded", result.state === "succeeded"
+          ? `Improvement verified · checkpoint ${result.checkpoint_id}`
+          : `Improvement ${result.state}: ${result.error || "verification failed"}`);
+        return { ...result, diff: plan.code_proposal.diff, verification_commands: commands };
+      } catch (error) {
+        completeAction(false, error.message);
+        throw error;
+      }
+    }
     if (name === "write_workspace_file") {
       const payload = { path: String(args.path || ""), content: String(args.content || "") };
       return executeApprovedTool(
@@ -1330,7 +1415,7 @@
       .map((message) => ({ role: message.role, content: message.content }));
     const system = {
       role: "system",
-      content: "You are Neo, the Puter-powered human–AI symbiosis intelligence at the center of NeoGen. Work toward the user's requested outcome, including multi-step research, writing, coding, form preparation, and connected workflows. Use available tools when they materially help. Read-only tools may run directly. Every write, submission, terminal, Git, cloud-save, publish, or other mutation must remain visible to the user and use NeoGen's exact one-time approval. Never claim an action succeeded unless its tool result confirms success. Preserve project continuity, verification, recovery, and the endlessly expanding Afterlife design principle.",
+      content: "You are Neo, the Puter-powered human–AI symbiosis intelligence at the center of NeoGen. Work toward the user's requested outcome, including multi-step research, writing, coding, form preparation, and connected workflows. Search conversation memory when prior decisions, constraints, attempts, or outcomes may matter. For coding and bug fixing, inspect the repository, list and read relevant source and tests, then prefer prepare_verified_improvement so the user approves the complete diff and verification suite once; it applies, tests, and rolls back automatically. Use separate mutation tools only when a verified improvement bundle is inappropriate. Read-only tools may run directly. Every mutation must remain visible. Never claim success unless its tool result confirms success. Preserve project continuity, verification, recovery, owner authority, and the endlessly expanding Afterlife design principle.",
     };
     const tools = neoGenToolDefinitions();
     if (state.model && /(^|\/)(gpt-|openai)/i.test(state.model)) tools.push({ type: "web_search" });

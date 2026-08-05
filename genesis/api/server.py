@@ -65,6 +65,10 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/wallet/transactions": self._send(HTTPStatus.OK, {"items": self.kernel.game.transactions(user.id)}); return
             if path == "/api/v1/marketplace": self._send(HTTPStatus.OK, {"items": self.kernel.game.listings()}); return
             if path == "/api/v1/conversations": self._send(HTTPStatus.OK, {"items": self.kernel.conversations.list(user_id=user.id)}); return
+            if path == "/api/v1/conversations/search":
+                term=query.get("q",[""])[0]
+                if not term: raise ApiError(HTTPStatus.BAD_REQUEST,"q is required")
+                self._send(HTTPStatus.OK,{"items":self.kernel.conversations.search(user_id=user.id,query=term,limit=int(query.get("limit",["20"])[0]))}); return
             conversation_id = self._conversation_path(path, "/messages")
             if conversation_id:
                 self._send(HTTPStatus.OK, {"conversation": self.kernel.conversations.get(conversation_id,user_id=user.id),"items":self.kernel.conversations.messages(conversation_id,user_id=user.id)}); return

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+import json
 from uuid import uuid4
 
 from genesis.app.coding import CodeChange, CodeProposal, CodeWorkspaceTool
@@ -38,6 +39,7 @@ class ImprovementPlan:
     changes: tuple[CodeChange, ...]
     code_proposal: CodeProposal
     verification_steps: tuple[VerificationStep, ...]
+    approval: ApprovalRequest
     created_at: str
 
 
@@ -70,6 +72,7 @@ class SelfImprovementService:
         self.learning = learning
         self.max_verification_steps = max_verification_steps
         self._states: dict[str, ImprovementState] = {}
+        self._plans: dict[str, ImprovementPlan] = {}
 
     async def start(self) -> None:
         return None
@@ -107,6 +110,13 @@ class SelfImprovementService:
             VerificationStep(arguments, self.terminal.request_run(project_id, arguments))
             for arguments in verification_commands
         )
+        bundle_action = self._bundle_action(code_proposal, steps)
+        approval = self.permissions.request(
+            project_id,
+            "improvement.execute",
+            f"Apply {len(changes)} source change(s) and run {len(steps)} verification check(s) with automatic rollback",
+            action=bundle_action,
+        )
         plan = ImprovementPlan(
             str(uuid4()),
             project_id,
@@ -116,8 +126,10 @@ class SelfImprovementService:
             changes,
             code_proposal,
             steps,
+            approval,
             datetime.now(UTC).isoformat(),
         )
+        self._plans[plan.id] = plan
         self._states[plan.id] = ImprovementState.PREPARED
         self.memory.remember(
             project_id,
@@ -132,14 +144,29 @@ class SelfImprovementService:
         except KeyError as exc:
             raise KeyError(f"Unknown improvement plan: {plan_id}") from exc
 
+    def get(self, plan_id: str) -> ImprovementPlan:
+        try:
+            return self._plans[plan_id]
+        except KeyError as exc:
+            raise KeyError(f"Unknown improvement plan: {plan_id}") from exc
+
     async def execute(self, plan: ImprovementPlan) -> ImprovementResult:
         if self.state(plan.id) is not ImprovementState.PREPARED:
             raise RuntimeError(f"Improvement plan is already {self.state(plan.id)}.")
-        approvals = (plan.code_proposal.approval,) + tuple(
+        subordinate = (plan.code_proposal.approval,) + tuple(
             step.approval for step in plan.verification_steps
         )
-        if any(self.permissions.require(item.id).state is not ApprovalState.APPROVED for item in approvals):
-            raise PermissionError("Every code and verification action must be approved before execution.")
+        for request in subordinate:
+            if self.permissions.require(request.id).state is not ApprovalState.PENDING:
+                raise PermissionError("Bundled improvement contains an invalid subordinate approval.")
+        self.permissions.consume(
+            plan.approval.id,
+            plan.project_id,
+            "improvement.execute",
+            action=self._bundle_action(plan.code_proposal, plan.verification_steps),
+        )
+        for request in subordinate:
+            self.permissions.decide(request.id, approved=True)
 
         self._states[plan.id] = ImprovementState.RUNNING
         checkpoint_id: str | None = None
@@ -220,4 +247,19 @@ class SelfImprovementService:
             ImprovementState.SUCCEEDED,
             checkpoint_id,
             tuple(results),
+        )
+
+    @staticmethod
+    def _bundle_action(
+        proposal: CodeProposal,
+        steps: tuple[VerificationStep, ...],
+    ) -> str:
+        return json.dumps(
+            {
+                "code": proposal.approval.action_digest,
+                "files": proposal.files,
+                "verification": [step.approval.action_digest for step in steps],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
         )
