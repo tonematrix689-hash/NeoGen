@@ -316,6 +316,68 @@ class GuardedTabletWorkspaceTests(unittest.TestCase):
         current = self.request_json("GET", "/subscriptions/current", authenticated=True)
         self.assertIn("agent_council", current["plan"]["abilities"])
 
+    def test_forge_spending_requires_exact_single_use_approval(self) -> None:
+        avatar = self.post(
+            "/forge/avatars",
+            {"name": "Sixfold", "prompt": "A six-armed antlered guardian"},
+            authenticated=True,
+        )
+        action = {
+            "avatar_id": avatar["id"],
+            "layer_type": "bones",
+            "design_prompt": "A branching luminous skeleton",
+            "abilities": ["six-limb coordination"],
+        }
+        approval = self.post("/guarded/forge/layers/request", action, authenticated=True)
+
+        with self.assertRaises(HTTPError) as unapproved:
+            self.post(
+                "/guarded/forge/layers/apply",
+                {**action, "approval_id": approval["id"]},
+                authenticated=True,
+            )
+        self.assertEqual(unapproved.exception.code, 400)
+        self.post(
+            "/guarded/approvals/decide",
+            {"approval_id": approval["id"], "approved": True},
+            authenticated=True,
+        )
+        with self.assertRaises(HTTPError) as substituted:
+            self.post(
+                "/guarded/forge/layers/apply",
+                {**action, "design_prompt": "Substituted", "approval_id": approval["id"]},
+                authenticated=True,
+            )
+        self.assertEqual(substituted.exception.code, 400)
+
+        forged = self.post(
+            "/guarded/forge/layers/apply",
+            {**action, "approval_id": approval["id"]},
+            authenticated=True,
+        )
+        self.assertEqual(forged["layers"]["bones"]["cost"], 30)
+        wallet = self.request_json("GET", "/wallet", authenticated=True)
+        self.assertEqual(wallet["balance"], 970)
+
+        upgrade = self.post(
+            "/guarded/forge/upgrade/request", {"avatar_id": avatar["id"]}, authenticated=True
+        )
+        self.post(
+            "/guarded/approvals/decide",
+            {"approval_id": upgrade["id"], "approved": True},
+            authenticated=True,
+        )
+        evolved = self.post(
+            "/guarded/forge/upgrade/apply",
+            {"avatar_id": avatar["id"], "approval_id": upgrade["id"]},
+            authenticated=True,
+        )
+        self.assertEqual(evolved["rarity_level"], 2)
+
+        with self.assertRaises(HTTPError) as direct:
+            self.post("/forge/upgrade", {"avatar_id": avatar["id"]}, authenticated=True)
+        self.assertEqual(direct.exception.code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

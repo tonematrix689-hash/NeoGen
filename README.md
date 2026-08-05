@@ -151,8 +151,8 @@ Available routes:
 - `/api/state` — demonstration player state
 - `/api/vera` — deterministic VERA guidance endpoint
 
-The MVP does not claim to be a hosted production service. Wallet balances and inventory are local
-demonstration data. Production AI routing, authentication, ACoin settlement, marketplace, 3D avatar
+The MVP does not claim to be a hosted production service. Coins of the Dead wallet balances and inventory are local
+demonstration data. The reference rate is 100 COTD per AUD 1, but payment, redemption, transfer, and blockchain settlement are disabled. Production AI routing, authentication, marketplace, 3D avatar
 tooling, and further RPG systems remain separate milestones.
 
 ## Test

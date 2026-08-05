@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import mimetypes
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer
@@ -118,6 +119,48 @@ class TabletHandler(NeoGenApiHandler):
                     self._required(payload, "approval_id"),
                 )
                 self._send(HTTPStatus.OK, {"path": result})
+                return
+            if path == "/api/v1/guarded/forge/layers/request":
+                action = self._forge_layer_action(payload)
+                avatar = self.kernel.game.forge_avatar(user.id, self._required(payload, "avatar_id"))
+                cost = self.kernel.game.layer_cost(int(avatar["rarity_level"]), self._required(payload, "layer_type"))
+                request = self.guarded_workspace.permissions.request(
+                    project_id, "forge.layer", f"Spend {cost} COTD to forge the {payload['layer_type']} layer", action=action
+                )
+                self._send(HTTPStatus.ACCEPTED, request)
+                return
+            if path == "/api/v1/guarded/forge/layers/apply":
+                action = self._forge_layer_action(payload)
+                self.guarded_workspace.permissions.consume(
+                    self._required(payload, "approval_id"), project_id, "forge.layer", action=action
+                )
+                result = self.kernel.game.add_forge_layer(
+                    user.id, self._required(payload, "avatar_id"),
+                    layer_type=self._required(payload, "layer_type"),
+                    design_prompt=self._required(payload, "design_prompt"),
+                    abilities=tuple(payload.get("abilities", ())),
+                )
+                self._send(HTTPStatus.CREATED, result)
+                return
+            if path == "/api/v1/guarded/forge/upgrade/request":
+                avatar_id = self._required(payload, "avatar_id")
+                avatar = self.kernel.game.forge_avatar(user.id, avatar_id)
+                cost = self.kernel.game.rarity_upgrade_cost(int(avatar["rarity_level"]))
+                action = json.dumps({"avatar_id": avatar_id, "from": avatar["rarity_level"], "cost": cost}, sort_keys=True)
+                request = self.guarded_workspace.permissions.request(
+                    project_id, "forge.upgrade", f"Spend {cost} COTD to upgrade rarity {avatar['rarity_level']} → {int(avatar['rarity_level']) + 1}", action=action
+                )
+                self._send(HTTPStatus.ACCEPTED, request)
+                return
+            if path == "/api/v1/guarded/forge/upgrade/apply":
+                avatar_id = self._required(payload, "avatar_id")
+                avatar = self.kernel.game.forge_avatar(user.id, avatar_id)
+                cost = self.kernel.game.rarity_upgrade_cost(int(avatar["rarity_level"]))
+                action = json.dumps({"avatar_id": avatar_id, "from": avatar["rarity_level"], "cost": cost}, sort_keys=True)
+                self.guarded_workspace.permissions.consume(
+                    self._required(payload, "approval_id"), project_id, "forge.upgrade", action=action
+                )
+                self._send(HTTPStatus.OK, self.kernel.game.upgrade_forge_avatar(user.id, avatar_id))
                 return
             if path == "/api/v1/guarded/improvements/prepare":
                 raw_changes = payload.get("changes")
@@ -231,6 +274,22 @@ class TabletHandler(NeoGenApiHandler):
             return None
         encoded = path[len(prefix):-len(suffix)].strip("/")
         return unquote(encoded) or None
+
+    @staticmethod
+    def _forge_layer_action(payload: dict[str, object]) -> str:
+        abilities = payload.get("abilities", [])
+        if not isinstance(abilities, list) or not all(isinstance(item, str) for item in abilities):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "abilities must be a string list")
+        return json.dumps(
+            {
+                "avatar_id": str(payload.get("avatar_id", "")),
+                "layer_type": str(payload.get("layer_type", "")),
+                "design_prompt": str(payload.get("design_prompt", "")),
+                "abilities": abilities,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     def _serve_static(self, request_path: str) -> None:
         relative = request_path.lstrip("/") or "index.html"

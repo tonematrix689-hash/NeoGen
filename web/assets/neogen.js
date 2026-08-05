@@ -38,6 +38,8 @@
     selectedPlan: localStorage.getItem("neogenSelectedPlan") || "level-1",
     subscription: null,
     abilities: new Set(),
+    forgeAvatars: [],
+    forgeAvatar: null,
   };
 
   const LEGAL_VERSION = "2026-08-05.1";
@@ -1692,8 +1694,9 @@
   async function loadEconomy() {
     if (!state.token) return;
     try {
-      const [wallet, inventory] = await Promise.all([request("/wallet"), request("/inventory")]);
+      const [wallet, inventory, cotd, forge] = await Promise.all([request("/wallet"), request("/inventory"), request("/cotd"), request("/forge/avatars")]);
       $("balance").textContent = wallet.balance;
+      $("cotdTerms").textContent = `${cotd.terms.reference_rate} · development ledger only`;
       $("inventory").innerHTML = "";
       if (!inventory.items.length) $("inventory").innerHTML = '<span class="muted">No persistent items yet.</span>';
       for (const item of inventory.items) {
@@ -1702,6 +1705,73 @@
         row.textContent = `${item.name} · rarity ${item.rarity}`;
         $("inventory").appendChild(row);
       }
+      state.forgeAvatars = forge.items || [];
+      renderForge();
+    } catch (error) { toast(error.message, true); }
+  }
+
+  function renderForge() {
+    const select = $("forgeAvatarSelect");
+    const chosen = select.value || state.forgeAvatar?.id || state.forgeAvatars[0]?.id || "";
+    select.replaceChildren(new Option("Create an avatar first", ""));
+    state.forgeAvatars.forEach((avatar) => select.add(new Option(`${avatar.name} · rarity ${avatar.rarity_level}`, avatar.id)));
+    select.value = state.forgeAvatars.some((avatar) => avatar.id === chosen) ? chosen : (state.forgeAvatars[0]?.id || "");
+    state.forgeAvatar = state.forgeAvatars.find((avatar) => avatar.id === select.value) || null;
+    const root = $("forgePreview");
+    if (!state.forgeAvatar) { root.innerHTML = '<span class="muted">Your layered avatar blueprint will appear here.</span>'; return; }
+    const avatar = state.forgeAvatar;
+    root.replaceChildren();
+    const title = document.createElement("strong"); title.textContent = `${avatar.name} · rarity ${avatar.rarity_level}/1000`;
+    const origin = document.createElement("p"); origin.textContent = avatar.origin_prompt;
+    root.append(title, origin);
+    Object.values(avatar.layers || {}).forEach((layer) => {
+      const item = document.createElement("div"); item.className = "forge-layer";
+      const label = document.createElement("b"); label.textContent = `${layer.type} · ${layer.cost} COTD`;
+      const text = document.createElement("span"); text.textContent = layer.design_prompt;
+      item.append(label, text); root.appendChild(item);
+    });
+  }
+
+  async function createForgeAvatar() {
+    try {
+      const avatar = await request("/forge/avatars", { method: "POST", body: JSON.stringify({ name: $("forgeName").value, prompt: $("forgePrompt").value }) });
+      state.forgeAvatar = avatar; await loadEconomy(); toast("Forge avatar draft created");
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function designForgeLayer() {
+    if (!state.forgeAvatar) { toast("Create or select a forge avatar first.", true); return; }
+    if (!state.puterUser) { toast("Connect Puter so VERA can design this layer.", true); return; }
+    const layer = $("forgeLayerType").value;
+    try {
+      const text = await puterClient.chat([
+        { role: "system", content: "You are VERA's fantasy avatar designer. Design only the requested anatomical or equipment layer. Respect the origin and user direction. Return a vivid, concise build description followed by one line beginning ABILITIES: with up to four comma-separated abilities. Do not claim minting, ownership, blockchain status, or payment." },
+        { role: "user", content: `Avatar origin: ${state.forgeAvatar.origin_prompt}\nLayer: ${layer}\nDirection: ${$("forgeLayerPrompt").value || "Invent the best fitting design."}` },
+      ], state.model ? { model: state.model } : {});
+      const match = text.match(/ABILITIES:\s*(.+)$/im);
+      $("forgeLayerAbilities").value = match?.[1]?.trim() || "";
+      $("forgeLayerPrompt").value = text.replace(/ABILITIES:\s*.+$/im, "").trim();
+      toast("VERA designed an editable layer draft");
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function mintForgeLayer() {
+    if (!state.forgeAvatar) { toast("Create or select a forge avatar first.", true); return; }
+    try {
+      await executeApprovedTool("/guarded/forge/layers/request", "/guarded/forge/layers/apply", {
+        avatar_id: state.forgeAvatar.id, layer_type: $("forgeLayerType").value,
+        design_prompt: $("forgeLayerPrompt").value,
+        abilities: $("forgeLayerAbilities").value.split(",").map((value) => value.trim()).filter(Boolean),
+      }, "Mint avatar layer with COTD");
+      await Promise.all([loadEconomy(), loadDashboard()]);
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function upgradeForgeRarity() {
+    if (!state.forgeAvatar) { toast("Create or select a forge avatar first.", true); return; }
+    try {
+      await executeApprovedTool("/guarded/forge/upgrade/request", "/guarded/forge/upgrade/apply", { avatar_id: state.forgeAvatar.id }, "Upgrade avatar rarity with COTD");
+      await Promise.all([loadEconomy(), loadDashboard()]);
     } catch (error) { toast(error.message, true); }
   }
 
@@ -2329,6 +2399,11 @@
     });
     $("refreshDashboard").onclick = () => Promise.allSettled([loadDashboard(), loadHealth()]);
     $("saveAvatar").onclick = saveAvatar;
+    $("createForgeAvatar").onclick = createForgeAvatar;
+    $("forgeAvatarSelect").onchange = () => { state.forgeAvatar = state.forgeAvatars.find((avatar) => avatar.id === $("forgeAvatarSelect").value) || null; renderForge(); };
+    $("designForgeLayer").onclick = designForgeLayer;
+    $("mintForgeLayer").onclick = mintForgeLayer;
+    $("upgradeForgeRarity").onclick = upgradeForgeRarity;
     all("[data-world-action]").forEach((button) => button.onclick = () => toast(`${button.dataset.worldAction} queued for the next connected world simulation.`));
     all(".academy-start").forEach((button) => button.onclick = () => {
       switchView("chatView", "Neo");
