@@ -211,6 +211,26 @@ class IdentityService:
             "sessions": len(self._store.list(self.session_namespace)),
         }
 
+    def revoke_user_sessions(self, user_id: str, *, except_session_id: str | None = None) -> int:
+        """Revoke a user's sessions, supporting account recovery and compromise response."""
+
+        self.get_user(user_id)
+        revoked = 0
+        for record in self._store.list(self.session_namespace):
+            value = record.value
+            if value.get("user_id") != user_id or value.get("id") == except_session_id:
+                continue
+            self._store.delete(self.session_namespace, record.key)
+            revoked += 1
+        self._events.publish(
+            "UserSessionsRevoked",
+            source="neogen.identity",
+            severity=EventSeverity.WARNING,
+            payload={"user_id": user_id, "count": revoked},
+            user_id=user_id,
+        )
+        return revoked
+
     def _reconcile_designated_owner(self) -> None:
         """Promote an existing designated account without changing credentials."""
 

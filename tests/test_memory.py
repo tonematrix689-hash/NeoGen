@@ -80,6 +80,22 @@ class MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(human.mode, "human_only")
         self.assertTrue(human.approval_required)
 
+    async def test_memory_bounds_and_owner_scoped_forgetting(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = MemoryService(Path(temp_dir) / "memory.db")
+            await service.start()
+            service.remember("owner:one", "keep")
+            service.add_turn("owner:one", "chat", "user", "private")
+            service.record_decision("owner:one", "reversible releases")
+            service.remember("owner:two", "untouched")
+            with self.assertRaises(ValueError):
+                service.remember("owner:one", "x" * (service.max_memory_length + 1))
+            deleted = service.forget_project("owner:one")
+            self.assertEqual(sum(deleted.values()), 3)
+            self.assertEqual(service.search("owner:one", "keep"), ())
+            self.assertEqual(service.search("owner:two", "untouched")[0].content, "untouched")
+            await service.stop()
+
 
 if __name__ == "__main__":
     unittest.main()

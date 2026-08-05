@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict, deque
 import json
+import os
+from threading import RLock
+import time
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
@@ -43,6 +47,10 @@ def _jsonable(value: Any) -> Any:
 class NeoGenApiHandler(BaseHTTPRequestHandler):
     kernel: NeoGenKernel
     server_version = "NeoGenAPI/0.6"
+    _rate_lock = RLock()
+    _auth_attempts: dict[str, deque[float]] = defaultdict(deque)
+    auth_attempt_limit = 8
+    auth_attempt_window = 60.0
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(HTTPStatus.NO_CONTENT); self._cors_headers(); self.end_headers()
@@ -90,17 +98,21 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         except ApiError as exc: self._send(exc.status,{"error":str(exc)})
         except IdentityError as exc: self._send(HTTPStatus.UNAUTHORIZED,{"error":str(exc)})
         except (ConversationError,WorkspaceError,GameError) as exc: self._send(HTTPStatus.BAD_REQUEST,{"error":str(exc)})
-        except Exception as exc: self._send(HTTPStatus.INTERNAL_SERVER_ERROR,{"error":f"{type(exc).__name__}: {exc}"})
+        except Exception: self._send(HTTPStatus.INTERNAL_SERVER_ERROR,{"error":"Internal request failure"})
 
     def do_POST(self) -> None:  # noqa: N802
         try:
             path=urlparse(self.path).path; payload=self._read_json()
             if path == "/api/v1/auth/register":
+                self._check_auth_rate_limit()
                 user=self.kernel.identity.register(email=self._required(payload,"email"),password=self._required(payload,"password"),display_name=self._required(payload,"display_name")); self._ensure_chat_permissions(user.id); self.kernel.game.get_or_create_avatar(user.id); self._ensure_role_entitlement(user); self._send(HTTPStatus.CREATED,user); return
             if path == "/api/v1/auth/login":
+                self._check_auth_rate_limit()
                 session=self.kernel.identity.authenticate(email=self._required(payload,"email"),password=self._required(payload,"password"),session_hours=int(payload.get("session_hours",24))); self._ensure_chat_permissions(session.user_id); self.kernel.game.get_or_create_avatar(session.user_id); self._ensure_role_entitlement(self.kernel.identity.get_user(session.user_id)); self._send(HTTPStatus.OK,session); return
             if path == "/api/v1/auth/logout": self.kernel.identity.logout(self._bearer_token()); self._send(HTTPStatus.OK,{"logged_out":True}); return
             user=self._authenticated_user()
+            if path == "/api/v1/auth/revoke-sessions":
+                self._send(HTTPStatus.OK,{"revoked":self.kernel.identity.revoke_user_sessions(user.id)}); return
             if path == "/api/v1/investment/proposal": self._send(HTTPStatus.CREATED,self.kernel.investment.propose(revenue_cents=int(payload.get("revenue_cents",0)),obligations_cents=int(payload.get("obligations_cents",0)),reserve_cents=int(payload.get("reserve_cents",0)))); return
             if path == "/api/v1/investment/metals/validate":
                 evidence=payload.get("evidence",{})
@@ -151,7 +163,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         except ApiError as exc: self._send(exc.status,{"error":str(exc)})
         except IdentityError as exc: self._send(HTTPStatus.UNAUTHORIZED,{"error":str(exc)})
         except (ConversationError,WorkspaceError,TerminalError,GameError,SubscriptionError,LegalError) as exc: self._send(HTTPStatus.BAD_REQUEST,{"error":str(exc)})
-        except Exception as exc: self._send(HTTPStatus.BAD_REQUEST,{"error":f"{type(exc).__name__}: {exc}"})
+        except Exception: self._send(HTTPStatus.BAD_REQUEST,{"error":"Request could not be processed"})
 
     def do_PATCH(self) -> None:  # noqa: N802
         try:
@@ -173,7 +185,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         except ApiError as exc: self._send(exc.status, {"error": str(exc)})
         except IdentityError as exc: self._send(HTTPStatus.UNAUTHORIZED, {"error": str(exc)})
         except ConversationError as exc: self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
-        except Exception as exc: self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+        except Exception: self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
 
     def do_DELETE(self) -> None:  # noqa: N802
         try:
@@ -188,7 +200,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         except ApiError as exc: self._send(exc.status, {"error": str(exc)})
         except IdentityError as exc: self._send(HTTPStatus.UNAUTHORIZED, {"error": str(exc)})
         except ConversationError as exc: self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
-        except Exception as exc: self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+        except Exception: self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
 
     def log_message(self, format: str, *args: Any) -> None:
         self.kernel.events.publish("ApiRequest",source="neogen.api",payload={"client":self.client_address[0],"message":format % args})
@@ -232,9 +244,20 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         if not isinstance(value,dict):raise ApiError(HTTPStatus.BAD_REQUEST,"Request body must be a JSON object")
         return value
     def _send(self,status:HTTPStatus,value:Any)->None:
-        body=json.dumps(_jsonable(value),separators=(",",":"),sort_keys=True).encode("utf-8");self.send_response(int(status));self.send_header("Content-Type","application/json; charset=utf-8");self.send_header("Content-Length",str(len(body)));self._cors_headers();self.end_headers();self.wfile.write(body)
+        body=json.dumps(_jsonable(value),separators=(",",":"),sort_keys=True).encode("utf-8");self.send_response(int(status));self.send_header("Content-Type","application/json; charset=utf-8");self.send_header("Content-Length",str(len(body)));self.send_header("Cache-Control","no-store");self.send_header("X-Content-Type-Options","nosniff");self.send_header("X-Frame-Options","DENY");self.send_header("Referrer-Policy","no-referrer");self.send_header("Content-Security-Policy","default-src 'none'; frame-ancestors 'none'");self._cors_headers();self.end_headers();self.wfile.write(body)
     def _cors_headers(self)->None:
-        self.send_header("Access-Control-Allow-Origin","*");self.send_header("Access-Control-Allow-Headers","Authorization, Content-Type");self.send_header("Access-Control-Allow-Methods","GET, POST, PATCH, DELETE, OPTIONS")
+        origin=self.headers.get("Origin","")
+        allowed={item.strip() for item in os.environ.get("NEOGEN_ALLOWED_ORIGINS","").split(",") if item.strip()}
+        if origin and origin in allowed:
+            self.send_header("Access-Control-Allow-Origin",origin);self.send_header("Vary","Origin")
+        self.send_header("Access-Control-Allow-Headers","Authorization, Content-Type");self.send_header("Access-Control-Allow-Methods","GET, POST, PATCH, DELETE, OPTIONS")
+    def _check_auth_rate_limit(self)->None:
+        key=self.client_address[0]; now=time.monotonic()
+        with self._rate_lock:
+            attempts=self._auth_attempts[key]
+            while attempts and now-attempts[0]>=self.auth_attempt_window: attempts.popleft()
+            if len(attempts)>=self.auth_attempt_limit: raise ApiError(HTTPStatus.TOO_MANY_REQUESTS,"Too many authentication attempts; try again later")
+            attempts.append(now)
     @staticmethod
     def _required(payload:dict[str,Any],field:str)->str:
         value=str(payload.get(field,"")).strip()
@@ -243,7 +266,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
 
 
 def create_server(*,host:str="127.0.0.1",port:int=8080,storage_path:str|Path="neogen.db",workspace_path:str|Path="workspace",enable_puter:bool=True)->ThreadingHTTPServer:
-    kernel=NeoGenKernel.build(storage_path=storage_path,workspace_path=workspace_path,enable_puter=enable_puter);handler=type("ConfiguredNeoGenApiHandler",(NeoGenApiHandler,),{"kernel":kernel});server=ThreadingHTTPServer((host,port),handler);server.daemon_threads=True;return server
+    kernel=NeoGenKernel.build(storage_path=storage_path,workspace_path=workspace_path,enable_puter=enable_puter);handler=type("ConfiguredNeoGenApiHandler",(NeoGenApiHandler,),{"kernel":kernel,"_auth_attempts":defaultdict(deque),"_rate_lock":RLock()});server=ThreadingHTTPServer((host,port),handler);server.daemon_threads=True;return server
 
 def main()->None:
     parser=argparse.ArgumentParser(description="Run the NeoGen REST API");parser.add_argument("--host",default="127.0.0.1");parser.add_argument("--port",type=int,default=8080);parser.add_argument("--db",default="neogen.db");parser.add_argument("--workspace",default="workspace");parser.add_argument("--disable-puter",action="store_true");args=parser.parse_args();server=create_server(host=args.host,port=args.port,storage_path=args.db,workspace_path=args.workspace,enable_puter=not args.disable_puter)

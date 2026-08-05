@@ -193,3 +193,5 @@ NeoGen
     ├── Rewards
     └── Marketplace settlement
 ```
+
+Milestone 019 hardens memory and security boundaries: guarded self-editing is Owner-only, API CORS is deny-by-default, authentication is throttled, sessions can be revoked account-wide, unexpected errors are sanitized, and persistent memory has strict size, retrieval, and owner-scoped deletion controls. See `docs/milestones/019-memory-security-hardening.md`.

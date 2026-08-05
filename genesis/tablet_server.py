@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import defaultdict, deque
 import json
 import mimetypes
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from threading import RLock
 from urllib.parse import unquote, urlparse
 
 from genesis.api.server import ApiError, NeoGenApiHandler
@@ -30,30 +32,36 @@ class TabletHandler(NeoGenApiHandler):
     web_root: Path
     guarded_workspace: WorkspaceService
 
+    def _owner(self):
+        user = self._authenticated_user()
+        if "owner" not in user.roles:
+            raise ApiError(HTTPStatus.FORBIDDEN, "Owner role required")
+        return user
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/api/v1/guarded/workspace":
             try:
-                user = self._authenticated_user()
+                user = self._owner()
                 self._send(HTTPStatus.OK, self.guarded_workspace.snapshot(user.id))
             except ApiError as exc:
                 self._send(exc.status, {"error": str(exc)})
-            except Exception as exc:
-                self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
             return
         if path == "/api/v1/guarded/repository":
             try:
-                self._authenticated_user()
+                self._owner()
                 self._send(HTTPStatus.OK, self.guarded_workspace.repository_snapshot())
             except ApiError as exc:
                 self._send(exc.status, {"error": str(exc)})
-            except Exception as exc:
-                self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
             return
         if path == "/api/v1/guarded/repository/status":
             try:
-                self._authenticated_user()
+                self._owner()
                 self._send(
                     HTTPStatus.OK,
                     {
@@ -64,21 +72,21 @@ class TabletHandler(NeoGenApiHandler):
                 )
             except ApiError as exc:
                 self._send(exc.status, {"error": str(exc)})
-            except Exception as exc:
-                self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
             return
         if path == "/api/v1/guarded/code":
             try:
-                self._authenticated_user()
+                self._owner()
                 self._send(HTTPStatus.OK, {"items": self.guarded_workspace.code_inventory()})
             except ApiError as exc:
                 self._send(exc.status, {"error": str(exc)})
-            except Exception as exc:
-                self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
             return
         if path == "/api/v1/guarded/code/read":
             try:
-                self._authenticated_user()
+                self._owner()
                 query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
                 target = unquote(query.get("path", ""))
                 if not target:
@@ -86,15 +94,15 @@ class TabletHandler(NeoGenApiHandler):
                 self._send(HTTPStatus.OK, self.guarded_workspace.read_code(target))
             except ApiError as exc:
                 self._send(exc.status, {"error": str(exc)})
-            except Exception as exc:
-                self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
             return
         if path == "/api/v1/guarded/symbiosis/decisions":
             try:
-                user = self._authenticated_user()
+                user = self._owner()
                 self._send(HTTPStatus.OK, {"items": self.guarded_workspace.decisions(user.id)})
-            except Exception as exc:
-                self._send(HTTPStatus.BAD_REQUEST, {"error": f"{type(exc).__name__}: {exc}"})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
             return
         if path.startswith("/api/"):
             super().do_GET()
@@ -107,7 +115,7 @@ class TabletHandler(NeoGenApiHandler):
             super().do_POST()
             return
         try:
-            user = self._authenticated_user()
+            user = self._owner()
             payload = self._read_json()
             project_id = user.id
             if path == "/api/v1/guarded/symbiosis/decisions":
@@ -296,8 +304,8 @@ class TabletHandler(NeoGenApiHandler):
             self._send(exc.status, {"error": str(exc)})
         except (KeyError, PermissionError, ValueError) as exc:
             self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
-        except Exception as exc:
-            self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"{type(exc).__name__}: {exc}"})
+        except Exception:
+            self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Internal request failure"})
 
     @staticmethod
     def _conversation_path(path: str, suffix: str) -> str | None:
@@ -362,6 +370,9 @@ class TabletHandler(NeoGenApiHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store, max-age=0")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
         self.end_headers()
@@ -400,6 +411,8 @@ def create_tablet_server(
             "web_root": root,
             "guarded_runtime": guarded_runtime,
             "guarded_workspace": guarded_workspace,
+            "_auth_attempts": defaultdict(deque),
+            "_rate_lock": RLock(),
         },
     )
     server = ThreadingHTTPServer((host, port), handler)
