@@ -8,7 +8,8 @@ const state = {
   activeFile: null,
   activeSha: null,
   treeCache: new Map(),
-  fileCache: new Map()
+  fileCache: new Map(),
+  approvedTasks: []
 };
 
 const permissionDefinitions = [
@@ -16,13 +17,21 @@ const permissionDefinitions = [
   ['edit_repo', 'Edit repository', 'Prepare changes in the editor.'],
   ['commit_repo', 'Commit changes', 'Create commits after explicit confirmation.'],
   ['open_pr', 'Open pull requests', 'Create draft pull requests after confirmation.'],
-  ['run_tasks', 'Run development tasks', 'Reserved for approved local validation tasks.'],
+  ['run_tasks', 'Run development tasks', 'Run allowlisted local checks after confirmation.'],
   ['deploy', 'Deploy applications', 'Reserved for confirmed deployment workflows.'],
   ['account_profile', 'Read account profile', 'Read the connected GitHub username.'],
   ['notifications', 'Send notifications', 'Display local status messages.'],
   ['web_access', 'Use web access', 'Allow external research workflows.'],
   ['memory', 'Use project memory', 'Remember local project preferences.']
 ];
+
+const capabilityPrompt = `You are NeoGen, the AI interface inside a local permission-controlled development application.
+Be concise, technical, truthful, and action-oriented.
+The application can currently: chat through Puter.js; connect to GitHub through its server; list repository files; read files; prepare browser-side edits; commit an approved file change; create draft pull requests through the backend API; and run a small allowlist of approved local tasks such as syntax checks, health checks, Git status, and file listing.
+Never claim that the application has no execution environment. Instead, distinguish between your language-model reasoning and the application's permission-controlled tools.
+Never claim an action was executed unless the interface or backend returned a successful result.
+Repository writes and local task execution require the matching permission and explicit one-time approval.
+Do not claim unrestricted device, shell, account, deployment, financial, or destructive control.`;
 
 function saveState() {
   localStorage.setItem('neogen.permissions', JSON.stringify(state.permissions));
@@ -31,12 +40,7 @@ function saveState() {
 }
 
 function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+  return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
 
 function logActivity(message) {
@@ -54,18 +58,13 @@ function renderActivity() {
 
 function renderPermissions() {
   $('#permissionGrid').innerHTML = permissionDefinitions.map(([key, title, description]) => `
-    <div class="permission-item">
-      <div><strong>${title}</strong><p>${description}</p></div>
-      <label class="switch"><input type="checkbox" data-permission="${key}" ${state.permissions[key] ? 'checked' : ''}><span></span></label>
-    </div>`).join('');
-
+    <div class="permission-item"><div><strong>${title}</strong><p>${description}</p></div><label class="switch"><input type="checkbox" data-permission="${key}" ${state.permissions[key] ? 'checked' : ''}><span></span></label></div>`).join('');
   $$('[data-permission]').forEach((input) => input.addEventListener('change', () => {
     state.permissions[input.dataset.permission] = input.checked;
     $('#fullControl').checked = permissionDefinitions.every(([key]) => state.permissions[key]);
     saveState();
     logActivity(`${input.checked ? 'Granted' : 'Revoked'} ${input.dataset.permission}`);
   }));
-
   $('#fullControl').checked = permissionDefinitions.every(([key]) => state.permissions[key]);
 }
 
@@ -73,12 +72,7 @@ function setView(name) {
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === name));
   $$('.view').forEach((view) => view.classList.remove('active'));
   $(`#${name}View`).classList.add('active');
-  $('#viewTitle').textContent = {
-    chat: 'Intelligence Console',
-    workspace: 'Repository Workspace',
-    permissions: 'Permission Control',
-    activity: 'Audit Trail'
-  }[name];
+  $('#viewTitle').textContent = { chat: 'Intelligence Console', workspace: 'Repository Workspace', tasks: 'Approved Task Console', permissions: 'Permission Control', activity: 'Audit Trail' }[name];
 }
 
 function requirePermission(key, message) {
@@ -92,12 +86,7 @@ async function api(path, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
   try {
-    const response = await fetch(path, {
-      credentials: 'same-origin',
-      signal: controller.signal,
-      ...options,
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
-    });
+    const response = await fetch(path, { credentials: 'same-origin', signal: controller.signal, ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
     return data;
@@ -109,9 +98,7 @@ async function api(path, options = {}) {
 function appendMessage(role, text) {
   const article = document.createElement('article');
   article.className = `message ${role}`;
-  article.innerHTML = role === 'assistant'
-    ? `<div class="avatar">N</div><div><strong>NeoGen</strong><p>${escapeHtml(text)}</p></div>`
-    : `<div><strong>You</strong><p>${escapeHtml(text)}</p></div>`;
+  article.innerHTML = role === 'assistant' ? `<div class="avatar">N</div><div><strong>NeoGen</strong><p>${escapeHtml(text)}</p></div>` : `<div><strong>You</strong><p>${escapeHtml(text)}</p></div>`;
   $('#messages').appendChild(article);
   article.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
@@ -128,15 +115,13 @@ async function handleChat(event) {
   if (!prompt) return;
   appendMessage('user', prompt);
   input.value = '';
-
   const waiting = document.createElement('article');
   waiting.className = 'message assistant';
   waiting.innerHTML = '<div class="avatar">N</div><div><strong>NeoGen</strong><p>Processing through Puter.js…</p></div>';
   $('#messages').appendChild(waiting);
-
   try {
     if (!window.puter?.ai?.chat) throw new Error('Puter.js is unavailable.');
-    const response = await window.puter.ai.chat(prompt, { model: state.model });
+    const response = await window.puter.ai.chat(`${capabilityPrompt}\n\nUSER REQUEST:\n${prompt}`, { model: state.model });
     waiting.querySelector('p').textContent = normalizeAiResponse(response);
     logActivity(`Completed AI request with ${state.model}`);
   } catch (error) {
@@ -146,10 +131,7 @@ async function handleChat(event) {
 }
 
 function repositoryContext() {
-  return {
-    repo: $('#repoName').value.trim(),
-    branch: $('#branchName').value.trim()
-  };
+  return { repo: $('#repoName').value.trim(), branch: $('#branchName').value.trim() };
 }
 
 async function loadRepositoryTree(force = false) {
@@ -158,7 +140,6 @@ async function loadRepositoryTree(force = false) {
   const key = `${repo}@${branch}`;
   const tree = $('#fileTree');
   tree.innerHTML = '<button disabled>Loading repository…</button>';
-
   try {
     let files = state.treeCache.get(key);
     if (!files || force) {
@@ -180,7 +161,6 @@ async function openFile(filePath) {
   const { repo, branch } = repositoryContext();
   const key = `${repo}@${branch}:${filePath}`;
   $('#activeFile').textContent = `Loading ${filePath}…`;
-
   try {
     let data = state.fileCache.get(key);
     if (!data) {
@@ -203,16 +183,15 @@ async function analyzeOrEditFile() {
   if (!requirePermission('edit_repo', 'Grant repository edit permission first.')) return;
   const instruction = prompt('Describe the analysis or requested change:');
   if (!instruction) return;
-
   const button = $('#proposeChange');
   button.disabled = true;
   button.textContent = 'Analyzing…';
   try {
     if (!window.puter?.ai?.chat) throw new Error('Puter.js is unavailable.');
-    const request = `You are reviewing ${state.activeFile}. ${instruction}\n\nReturn only the complete revised file if a code change is requested. Otherwise return concise findings.\n\nCURRENT FILE:\n${$('#editor').value}`;
+    const request = `${capabilityPrompt}\n\nYou are reviewing ${state.activeFile}. ${instruction}\nReturn only the complete revised file if a code change is requested. Otherwise return concise findings.\n\nCURRENT FILE:\n${$('#editor').value}`;
     const result = normalizeAiResponse(await window.puter.ai.chat(request, { model: state.model }));
     const cleaned = result.replace(/^```[\w-]*\n?/, '').replace(/\n?```$/, '');
-    if (instruction.toLowerCase().includes('analy') || instruction.toLowerCase().includes('review')) {
+    if (/analy|review|explain/i.test(instruction)) {
       appendMessage('assistant', result);
       setView('chat');
     } else {
@@ -240,15 +219,9 @@ async function commitActiveFile() {
   if (!requirePermission('commit_repo', 'Grant commit permission first.')) return;
   const { repo, branch } = repositoryContext();
   const message = prompt('Commit message:', `Update ${state.activeFile}`);
-  if (!message) return;
-  if (!await confirmSensitive(`Approve one commit for ${state.activeFile} on ${repo}@${branch}?`)) return;
-
+  if (!message || !await confirmSensitive(`Approve one commit for ${state.activeFile} on ${repo}@${branch}?`)) return;
   try {
-    const result = await api('/api/github/commit', {
-      method: 'POST',
-      headers: { 'X-NeoGen-Approval': 'confirmed' },
-      body: JSON.stringify({ repo, branch, path: state.activeFile, sha: state.activeSha, message, content: $('#editor').value })
-    });
+    const result = await api('/api/github/commit', { method: 'POST', headers: { 'X-NeoGen-Approval': 'confirmed' }, body: JSON.stringify({ repo, branch, path: state.activeFile, sha: state.activeSha, message, content: $('#editor').value }) });
     state.activeSha = result.content?.sha || state.activeSha;
     state.fileCache.delete(`${repo}@${branch}:${state.activeFile}`);
     state.treeCache.delete(`${repo}@${branch}`);
@@ -257,6 +230,41 @@ async function commitActiveFile() {
   } catch (error) {
     alert(error.message);
     logActivity(`Commit failed: ${error.message}`);
+  }
+}
+
+async function loadApprovedTasks() {
+  try {
+    const data = await api('/api/tasks');
+    state.approvedTasks = data.tasks || [];
+    $('#taskSelect').innerHTML = state.approvedTasks.map((task) => `<option value="${escapeHtml(task.id)}">${escapeHtml(task.label)}</option>`).join('');
+    if (!state.approvedTasks.length) $('#taskSelect').innerHTML = '<option>No tasks available</option>';
+  } catch (error) {
+    $('#taskSelect').innerHTML = `<option>${escapeHtml(error.message)}</option>`;
+    logActivity(`Task list failed: ${error.message}`);
+  }
+}
+
+async function runSelectedTask() {
+  if (!requirePermission('run_tasks', 'Grant Run development tasks permission first.')) return;
+  const taskId = $('#taskSelect').value;
+  const task = state.approvedTasks.find((item) => item.id === taskId);
+  if (!task) return alert('Select an approved task.');
+  if (!await confirmSensitive(`Approve one run of: ${task.label}?`)) return;
+  const button = $('#runTask');
+  button.disabled = true;
+  button.textContent = 'Running…';
+  $('#taskOutput').value = `Running ${task.label}…`;
+  try {
+    const result = await api('/api/tasks/run', { method: 'POST', headers: { 'X-NeoGen-Approval': 'confirmed' }, body: JSON.stringify({ taskId }) });
+    $('#taskOutput').value = [`Task: ${result.label}`, `Exit code: ${result.code}`, '', result.stdout || '', result.stderr || ''].join('\n').trim();
+    logActivity(`Ran approved task ${taskId} with exit code ${result.code}`);
+  } catch (error) {
+    $('#taskOutput').value = `Task failed: ${error.message}`;
+    logActivity(`Task ${taskId} failed: ${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Run with approval';
   }
 }
 
@@ -275,7 +283,6 @@ function initMatrix() {
   const ctx = canvas.getContext('2d');
   const glyphs = 'NEOGEN01<>/{}[]$#*';
   let drops = [];
-
   function resize() {
     const ratio = window.devicePixelRatio || 1;
     canvas.width = innerWidth * ratio;
@@ -285,7 +292,6 @@ function initMatrix() {
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     drops = Array.from({ length: Math.floor(innerWidth / 18) }, () => Math.random() * -50);
   }
-
   function draw() {
     ctx.fillStyle = 'rgba(7,4,12,.11)';
     ctx.fillRect(0, 0, innerWidth, innerHeight);
@@ -297,7 +303,6 @@ function initMatrix() {
     });
     requestAnimationFrame(draw);
   }
-
   resize();
   addEventListener('resize', resize);
   draw();
@@ -306,50 +311,31 @@ function initMatrix() {
 function init() {
   $$('.nav-item').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
   $('#chatForm').addEventListener('submit', handleChat);
-  $('#newChat').addEventListener('click', () => {
-    $('#messages').innerHTML = '<article class="message assistant"><div class="avatar">N</div><div><strong>NeoGen</strong><p>New session created.</p></div></article>';
-  });
+  $('#newChat').addEventListener('click', () => { $('#messages').innerHTML = '<article class="message assistant"><div class="avatar">N</div><div><strong>NeoGen</strong><p>New session created. I can reason, inspect approved repository data, prepare edits, and request approved local checks.</p></div></article>'; });
   $('#modelSelect').value = state.model;
-  $('#modelSelect').addEventListener('change', (event) => {
-    state.model = event.target.value;
-    saveState();
-  });
-  $('#fullControl').addEventListener('change', (event) => {
-    permissionDefinitions.forEach(([key]) => { state.permissions[key] = event.target.checked; });
-    saveState();
-    renderPermissions();
-  });
-  $('#clearLog').addEventListener('click', () => {
-    state.activity = [];
-    saveState();
-    renderActivity();
-  });
-  $('#connectGithub').addEventListener('click', () => {
-    if (requirePermission('account_profile', 'Grant account profile permission first.')) location.href = '/api/github/login';
-  });
+  $('#modelSelect').addEventListener('change', (event) => { state.model = event.target.value; saveState(); });
+  $('#fullControl').addEventListener('change', (event) => { permissionDefinitions.forEach(([key]) => { state.permissions[key] = event.target.checked; }); saveState(); renderPermissions(); });
+  $('#clearLog').addEventListener('click', () => { state.activity = []; saveState(); renderActivity(); });
+  $('#connectGithub').addEventListener('click', () => { if (requirePermission('account_profile', 'Grant account profile permission first.')) location.href = '/api/github/login'; });
   $('#repoName').addEventListener('change', () => loadRepositoryTree(true));
   $('#branchName').addEventListener('change', () => loadRepositoryTree(true));
   $('#proposeChange').addEventListener('click', analyzeOrEditFile);
   $('#commitChange').addEventListener('click', commitActiveFile);
+  $('#runTask').addEventListener('click', runSelectedTask);
   $('#accountBtn').addEventListener('click', async () => {
     try {
       if (!window.puter?.auth) throw new Error('Puter.js is unavailable.');
       if (!await window.puter.auth.isSignedIn()) await window.puter.auth.signIn();
       const user = await window.puter.auth.getUser();
       alert(`Signed in as ${user?.username || 'Puter user'}`);
-    } catch (error) {
-      alert(error.message);
-    }
+    } catch (error) { alert(error.message); }
   });
-
   renderPermissions();
   renderActivity();
   initMatrix();
+  loadApprovedTasks();
   checkGithubStatus();
-  if (new URLSearchParams(location.search).get('github') === 'connected') {
-    history.replaceState({}, '', location.pathname);
-    setView('workspace');
-  }
+  if (new URLSearchParams(location.search).get('github') === 'connected') { history.replaceState({}, '', location.pathname); setView('workspace'); }
   logActivity('NeoGen interface initialized');
 }
 
