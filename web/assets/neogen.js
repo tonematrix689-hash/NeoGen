@@ -33,6 +33,8 @@
     trainingLibrary: [],
     councilAgents: [],
     councilTranscript: [],
+    councilRepository: null,
+    councilEvidence: "",
     selectedPlan: localStorage.getItem("neogenSelectedPlan") || "level-1",
     subscription: null,
     abilities: new Set(),
@@ -652,6 +654,7 @@
     if (id === "councilView") {
       if (!state.councilAgents.length) allocateCouncilSubjects(false);
       else renderCouncilAgents();
+      if (state.token) loadCouncilRepositoryContext(false);
     }
   }
 
@@ -1684,6 +1687,66 @@
       .slice(-18000);
   }
 
+  function boundedCouncilText(value, limit) {
+    const content = String(value || "").trim();
+    if (content.length <= limit) return content;
+    return `${content.slice(0, limit)}\n… ${content.length - limit} characters omitted`;
+  }
+
+  function formatCouncilRepositoryContext(repository = state.councilRepository) {
+    if (!repository?.snapshot?.available) return "No Git repository context is available.";
+    const { snapshot, details, files } = repository;
+    const excludedParts = new Set([".git", ".genesis", ".pytest_cache", "__pycache__", "node_modules", ".venv", "venv"]);
+    const sourceFiles = files.filter((item) => {
+      if (item.kind !== "file") return false;
+      const parts = String(item.path || "").split("/");
+      if (parts.some((part) => excludedParts.has(part))) return false;
+      return !/(^|\/)(\.env($|\.)|.*(?:secret|credential|token|private[-_.]?key).*)/i.test(item.path);
+    });
+    const inventory = sourceFiles.slice(0, 240).map((item) => item.path);
+    return [
+      `Branch: ${snapshot.branch || "detached"}`,
+      `Commit: ${snapshot.commit || "unknown"}`,
+      `Working tree: ${snapshot.dirty ? "changes present" : "clean"}`,
+      `Remote names: ${(snapshot.remotes || []).join(", ") || "none"}`,
+      `\nStatus:\n${boundedCouncilText(details.status, 4000) || "clean"}`,
+      `\nRecent history:\n${boundedCouncilText(details.log, 5000) || "unavailable"}`,
+      `\nBounded working-tree diff:\n${boundedCouncilText(details.diff, 12000) || "no unstaged diff"}`,
+      `\nSource inventory (${inventory.length}/${sourceFiles.length} files):\n${inventory.join("\n") || "empty"}`,
+    ].join("\n").slice(0, 26000);
+  }
+
+  async function loadCouncilRepositoryContext(showNotice = true) {
+    if (!state.token) {
+      state.councilRepository = null;
+      $("councilRepositoryStatus").textContent = "Connect the local Genesis runtime to attach repository evidence.";
+      $("councilRepositoryPreview").textContent = "No repository context loaded.";
+      if (showNotice) toast("Connect the local Genesis runtime first.", true);
+      return false;
+    }
+    $("councilRepositoryStatus").textContent = "Reading the authorized checkout…";
+    try {
+      const [snapshot, details, listing] = await Promise.all([
+        request("/guarded/repository"),
+        request("/guarded/repository/status"),
+        request("/workspace/list?recursive=true"),
+      ]);
+      if (!snapshot.available) throw new Error("The authorized workspace is not a Git checkout.");
+      state.councilRepository = { snapshot, details, files: listing.items || [] };
+      const fileCount = state.councilRepository.files.filter((item) => item.kind === "file").length;
+      $("councilRepositoryStatus").textContent = `${snapshot.branch || "detached"} · ${(snapshot.commit || "").slice(0, 8)} · ${snapshot.dirty ? "changes present" : "clean"} · ${fileCount} files`;
+      $("councilRepositoryPreview").textContent = formatCouncilRepositoryContext();
+      if (showNotice) toast("Live repository evidence attached to the council");
+      return true;
+    } catch (error) {
+      state.councilRepository = null;
+      $("councilRepositoryStatus").textContent = error.message;
+      $("councilRepositoryPreview").textContent = "Repository context unavailable.";
+      if (showNotice) toast(error.message, true);
+      return false;
+    }
+  }
+
   async function runAgentCouncil(followup = false) {
     const subject = $("councilSubject").value.trim();
     const context = $("councilContext").value.trim();
@@ -1692,6 +1755,17 @@
     if (followup && !followupText) { toast("Enter a follow-up for the council.", true); return; }
     if (!state.puterUser) await connectPuter(false);
     if (!state.puterUser) return;
+    const includeRepository = $("includeCouncilRepository").checked;
+    if (includeRepository) {
+      const loaded = await loadCouncilRepositoryContext(false);
+      if (!loaded) {
+        toast("Repository evidence is enabled but unavailable. Reconnect the runtime or turn off the repository bridge.", true);
+        return;
+      }
+    }
+    const repositoryContext = includeRepository
+      ? formatCouncilRepositoryContext()
+      : "Repository context not attached for this round.";
     if (!state.councilAgents.length || state.councilAgents[0].assignment.indexOf(subject) < 0) {
       allocateCouncilSubjects(false);
     }
@@ -1701,11 +1775,13 @@
       scope: [
         "Make exactly 10 Puter AI requests in this round",
         "Share only the displayed subject, context, and council transcript",
+        ...(includeRepository ? ["Share the displayed bounded repository snapshot, diff, history, and file inventory"] : []),
         "Allow Oracle to search the public web for current sources",
         "Perform no file, terminal, Git, publishing, or account mutation",
       ],
     });
     if (!approved) { $("councilStatus").textContent = "Declined"; return; }
+    state.councilEvidence = repositoryContext;
     if (!followup) {
       state.councilTranscript = [];
       $("councilChat").replaceChildren();
@@ -1714,6 +1790,8 @@
     $("runCouncil").disabled = true;
     $("askCouncil").disabled = true;
     $("saveCouncil").disabled = true;
+    $("saveCouncilRepository").disabled = true;
+    $("handoffCouncil").disabled = true;
     const round = (state.councilTranscript.reduce((highest, item) => Math.max(highest, item.round || 1), 0) || 0) + 1;
     let completed = 0;
     $("councilStatus").textContent = `Round ${round} · 0/10`;
@@ -1732,7 +1810,7 @@
         };
         const user = {
           role: "user",
-          content: `Council subject: ${subject}\nShared context: ${context || "No additional context supplied."}\n${followup ? `Follow-up for every agent: ${followupText}\n` : ""}\nShared discussion so far:\n${previous}\n\nContribute your specialist analysis now.`,
+          content: `Council subject: ${subject}\nShared context: ${context || "No additional context supplied."}\n\nAuthorized repository evidence:\n${repositoryContext}\n${followup ? `\nFollow-up for every agent: ${followupText}\n` : ""}\nShared discussion so far:\n${previous}\n\nCross-analyse the repository evidence and earlier specialist findings. Contribute your distinct analysis now.`,
         };
         const options = {
           ...(state.model ? { model: state.model } : {}),
@@ -1756,6 +1834,8 @@
       const complete = completed === state.councilAgents.length;
       $("councilStatus").textContent = complete ? `Round ${round} complete` : `Round ${round} partial · ${completed}/10`;
       $("saveCouncil").disabled = !state.councilTranscript.length;
+      $("saveCouncilRepository").disabled = !state.councilTranscript.length || !state.token;
+      $("handoffCouncil").disabled = !state.councilTranscript.length;
       $("askCouncil").disabled = false;
       completeAction(complete, `${completed}/10 council specialists responded`);
       addActivity("Council analyzed subject", `${completed}/10 specialists · ${subject}`, complete);
@@ -1763,6 +1843,18 @@
       $("runCouncil").disabled = false;
       $("askCouncil").disabled = !state.councilTranscript.length;
     }
+  }
+
+  function councilTranscriptDocument() {
+    const subject = $("councilSubject").value.trim() || "Council analysis";
+    const repositoryContext = state.councilEvidence || "Repository context was not attached.";
+    return [
+      `# Neo Agent Council: ${subject}`,
+      `\nCreated: ${new Date().toISOString()}`,
+      `\nShared context:\n${$("councilContext").value.trim() || "None supplied."}`,
+      `\n## Repository evidence\n\n${repositoryContext}`,
+      ...state.councilTranscript.map((item) => `\n## ${item.agent.name} — ${item.agent.role} (round ${item.round})\n\n${item.content}`),
+    ].join("\n");
   }
 
   async function saveCouncilTranscript() {
@@ -1777,17 +1869,59 @@
       scope: ["Save the displayed discussion", "Keep it in private Puter storage", "Do not publish or modify the local workspace"],
     });
     if (!approved) return;
-    const body = [
-      `# Neo Agent Council: ${subject}`,
-      `\nCreated: ${new Date().toISOString()}`,
-      `\nShared context:\n${$("councilContext").value.trim() || "None supplied."}`,
-      ...state.councilTranscript.map((item) => `\n## ${item.agent.name} — ${item.agent.role} (round ${item.round})\n\n${item.content}`),
-    ].join("\n");
+    const body = councilTranscriptDocument();
     try {
       await puterClient.saveText(path, body);
       completeAction(true, `Saved ${ROOT}/${path}`);
       toast("Council transcript saved privately in Puter");
     } catch (error) { completeAction(false, error.message); toast(error.message, true); }
+  }
+
+  async function saveCouncilTranscriptToRepository() {
+    if (!state.councilTranscript.length) { toast("Run the council before saving a transcript.", true); return; }
+    if (!state.token) { toast("Connect the local Genesis runtime first.", true); return; }
+    const subject = $("councilSubject").value.trim() || "Council analysis";
+    const path = `docs/agent-council/${trainingSlug(subject)}-${Date.now()}.md`;
+    const payload = { path, content: councilTranscriptDocument() };
+    try {
+      const approval = await request("/guarded/files/request-write", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      const approved = await requestUserApproval({
+        title: "Save council analysis to repository",
+        summary: approval.summary,
+        scope: ["Write this exact Markdown transcript once", "Stay inside the authorized checkout", "Do not commit, push, or modify another file"],
+      });
+      if (!approved) {
+        await decideApproval(approval.id, false);
+        return;
+      }
+      await decideApproval(approval.id, true);
+      const result = await request("/guarded/files/write", {
+        method: "POST",
+        body: JSON.stringify({ ...payload, approval_id: approval.id }),
+      });
+      completeAction(true, `Saved ${result.path}`);
+      addActivity("Council evidence saved", result.path, true);
+      toast(`Saved ${result.path}; commit remains a separate approval`);
+      await Promise.allSettled([loadCouncilRepositoryContext(false), loadRepository()]);
+    } catch (error) { completeAction(false, error.message); toast(error.message, true); }
+  }
+
+  function handoffCouncilImprovement() {
+    if (!state.councilTranscript.length) { toast("Run the council before creating an improvement.", true); return; }
+    const subject = $("councilSubject").value.trim() || "NeoGen improvement";
+    const synthesis = [...state.councilTranscript].reverse().find((item) => item.agent.id === "synthesis" && !item.failed)
+      || [...state.councilTranscript].reverse().find((item) => !item.failed);
+    const discussion = sharedCouncilTranscript();
+    const repository = state.councilRepository?.snapshot;
+    switchView("chatView", "Neo");
+    $("prompt").value = `Turn this Agent Council cross-analysis into the smallest safe NeoGen improvement.\n\nSubject: ${subject}\nRepository baseline: ${repository ? `${repository.branch || "detached"} at ${repository.commit || "unknown"}${repository.dirty ? " with working-tree changes" : " (clean)"}` : "Re-inspect the authorized checkout before planning."}\n\nCouncil synthesis:\n${synthesis?.content || "No synthesis response was available."}\n\nShared council discussion:\n${discussion}\n\nImprovement protocol:\n1. Re-inspect the relevant repository files and tests; treat council claims as hypotheses until verified.\n2. Propose one coherent improvement with measurable acceptance checks.\n3. Show the exact diff before any mutation and request a fresh single-use approval.\n4. Create a recovery checkpoint, apply only the approved change, run the relevant tests, and roll back automatically if verification fails.\n5. Do not commit, push, merge, publish, or perform another consequential action without its own approval.`;
+    autoResizePrompt();
+    $("prompt").focus();
+    addActivity("Council handed off to Neo", subject, true);
+    toast("Council synthesis prepared as a governed improvement");
   }
 
   async function loadTrainingLibrary() {
@@ -2081,9 +2215,12 @@
     });
     $("refreshCapabilities").onclick = loadCapabilities;
     $("allocateCouncil").onclick = () => allocateCouncilSubjects(true);
+    $("refreshCouncilRepository").onclick = () => loadCouncilRepositoryContext(true);
     $("runCouncil").onclick = () => runAgentCouncil(false);
     $("askCouncil").onclick = () => runAgentCouncil(true);
     $("saveCouncil").onclick = saveCouncilTranscript;
+    $("saveCouncilRepository").onclick = saveCouncilTranscriptToRepository;
+    $("handoffCouncil").onclick = handoffCouncilImprovement;
     $("startTraining").onclick = startTrainingResearch;
     $("refreshTraining").onclick = loadTrainingLibrary;
     $("forgeImprovement").onclick = forgeTrainingImprovement;

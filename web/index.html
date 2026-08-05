@@ -298,12 +298,18 @@
                 <div class="training-card-head"><span>01</span><div><h2>Allocate the subject</h2><p>Give every specialist a precise outcome and optional shared context.</p></div></div>
                 <label for="councilSubject">Question or outcome</label><input id="councilSubject" placeholder="e.g. Design the safest plugin architecture for NeoGen">
                 <label for="councilContext">Shared evidence or constraints</label><textarea id="councilContext" rows="6" placeholder="Paste requirements, decisions, evidence, or constraints…"></textarea>
+                <section class="council-repository-link" aria-labelledby="councilRepositoryTitle">
+                  <div class="council-repository-head"><div><span>Live repository bridge</span><strong id="councilRepositoryTitle">Cross-analyse the authorized checkout</strong></div><button id="refreshCouncilRepository" class="icon-button" aria-label="Refresh council repository context">↻</button></div>
+                  <label class="council-repository-toggle"><input id="includeCouncilRepository" type="checkbox" checked> Share the displayed bounded repository context with this council round</label>
+                  <div id="councilRepositoryStatus" class="council-repository-status">Connect the local Genesis runtime to attach repository evidence.</div>
+                  <pre id="councilRepositoryPreview" class="council-repository-preview">No repository context loaded.</pre>
+                </section>
                 <div class="council-actions"><button id="allocateCouncil" class="ghost-button">Allocate subjects</button><button id="runCouncil" class="primary-button">Approve and run council</button></div>
                 <div class="council-status-row"><span>Round status</span><em id="councilStatus" class="tag">Ready</em></div>
                 <div id="agentGrid" class="agent-grid" aria-live="polite"></div>
               </section>
               <section class="council-room">
-                <div class="council-room-head"><div><div class="eyebrow">Shared room</div><h2>Collaborative analysis</h2></div><button id="saveCouncil" class="ghost-button" disabled>Save transcript</button></div>
+                <div class="council-room-head"><div><div class="eyebrow">Shared room</div><h2>Collaborative analysis</h2></div><div class="council-room-actions"><button id="handoffCouncil" class="approve-button" disabled>Create improvement</button><button id="saveCouncilRepository" class="ghost-button" disabled>Save to repository</button><button id="saveCouncil" class="ghost-button" disabled>Save privately</button></div></div>
                 <div id="councilChat" class="council-chat" aria-live="polite"><div class="council-empty"><span>◉</span><strong>The council is waiting</strong><p>Allocate a subject, review the ten roles, then approve a discussion round.</p></div></div>
                 <div class="council-followup"><input id="councilFollowup" placeholder="Ask all ten agents to challenge, refine, or re-evaluate…"><button id="askCouncil" class="approve-button" disabled>Run follow-up round</button></div>
               </section>

@@ -45,6 +45,12 @@ generation, OCR, text-to-speech, transcription, and speech-to-speech conversion.
 calling can inspect NeoGen health, source, Git, and cloud files; any requested file write, terminal
 command, Git mutation, cloud note, or publication still pauses for visible exact-action approval.
 
+The Agent Council can attach a bounded, visible snapshot of the authorized Git checkout to every
+ten-specialist round. Later specialists cross-analyse the same repository evidence and shared
+transcript before the synthesis lead produces a decision. The result can be handed to Neo as a
+governed improvement proposal or saved under `docs/agent-council/`; source edits, verification,
+commits, pushes, and merges remain separate exact, single-use approvals.
+
 The public client now presents NeoGen through a silica-core visual system and a subscription
 catalogue with ten cumulative individual levels, role-assigned Admin Level 11 and Owner Level 12,
 plus Business and Enterprise plans. Every plan and ability remains visible in Settings, including
