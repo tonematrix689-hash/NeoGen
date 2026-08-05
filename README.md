@@ -30,6 +30,20 @@ inspectable online-learning score, and can improve an authorized app or its own 
 Every diff and verification command requires approval; failed checks automatically restore the
 recovery checkpoint. See `docs/milestones/014-adaptive-self-improvement.md` for research and limits.
 
+The tablet client is Puter-first for browser identity, AI inference, cloud conversation backups,
+settings, and optional static hosting. It loads Puter.js v2 directly and does not require NeoGen to
+store a model-provider API key. Local repository writes and terminal commands deliberately remain
+behind the Genesis runtime: the browser requests a visible, exact-action approval and the runtime
+consumes that approval once. A Puter-hosted frontend therefore remains useful on its own for AI and
+cloud data, but it cannot silently acquire shell access to the user's device.
+
+When the configured workspace is a Git checkout, NeoGen also exposes repository status, history,
+diffs, branches, commits, fetches, pushes, merges, and other Git operations. Inspection is read-only;
+every Git mutation is executed without a command shell and requires a matching one-time approval.
+Remote operations use credentials already configured for Git on the device. Do not put GitHub
+tokens in `web/`, Puter KV, Puter Files, command arguments, or repository source. For hosted GitHub
+API operations, use a repository-scoped GitHub App with short-lived installation tokens.
+
 To point the composed workspace runtime at an authorized application checkout, set
 `GENESIS_WORKSPACE_DIR` to that repository. NeoGen stores memory and recovery checkpoints under
 `GENESIS_DATA_DIR`, keeping runtime state separate from source code.

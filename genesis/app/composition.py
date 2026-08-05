@@ -8,6 +8,7 @@ from genesis.app.kernel import GenesisRuntime, GenesisSettings, ServiceDescripto
 from genesis.app.learning import LearningService
 from genesis.app.memory import MemoryService
 from genesis.app.research import WebResearchTool
+from genesis.app.repository import RepositoryService
 from genesis.app.security import PermissionEngine
 from genesis.app.tools import TerminalTool, WorkspaceFileTool
 from genesis.app.workspace import WorkspaceService
@@ -24,6 +25,7 @@ def create_workspace_runtime(settings: GenesisSettings | None = None) -> Genesis
     terminal = TerminalTool(workspace_root, permissions)
     coding = CodeWorkspaceTool(workspace_root, data_dir / "checkpoints", permissions)
     research = WebResearchTool(permissions)
+    repository = RepositoryService(workspace_root, permissions)
     improvement = SelfImprovementService(
         permissions, coding, terminal, memory, learning
     )
@@ -34,6 +36,7 @@ def create_workspace_runtime(settings: GenesisSettings | None = None) -> Genesis
         terminal,
         coding,
         research,
+        repository,
         learning,
         improvement,
         runtime.registry,
@@ -42,6 +45,15 @@ def create_workspace_runtime(settings: GenesisSettings | None = None) -> Genesis
     descriptors = (
         ServiceDescriptor("permissions", "0.1.0", "Explicit approval engine.", permissions, priority=10),
         ServiceDescriptor("memory", "0.1.0", "Persistent workspace memory.", memory, priority=20),
+        ServiceDescriptor(
+            "repository",
+            "0.1.0",
+            "Approval-gated Git repository access.",
+            repository,
+            priority=30,
+            dependencies=("permissions",),
+            kind="capability",
+        ),
         ServiceDescriptor(
             "learning",
             "0.1.0",
@@ -96,6 +108,7 @@ def create_workspace_runtime(settings: GenesisSettings | None = None) -> Genesis
                 "terminal",
                 "coding",
                 "research",
+                "repository",
                 "learning",
                 "improvement",
             ),
