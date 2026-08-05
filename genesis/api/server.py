@@ -55,6 +55,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             if path == "/api/v1/health": self._send(HTTPStatus.OK, self.kernel.health()); return
             if path == "/api/v1/subscriptions/catalog": self._send(HTTPStatus.OK, {"items": self.kernel.subscriptions.catalog()}); return
             if path == "/api/v1/legal/catalog": self._send(HTTPStatus.OK, {"items": self.kernel.legal.catalog(), "configuration": self.kernel.legal.public_configuration()}); return
+            if path == "/api/v1/investment/mandate": self._send(HTTPStatus.OK,self.kernel.investment.mandate()); return
             if path == "/api/v1/auth/me": self._send(HTTPStatus.OK, self._authenticated_user()); return
             user = self._authenticated_user()
             if path == "/api/v1/cotd": self._send(HTTPStatus.OK,{"wallet":self.kernel.game.wallet(user.id),"terms":self.kernel.game.coin_terms()}); return
@@ -100,6 +101,11 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
                 session=self.kernel.identity.authenticate(email=self._required(payload,"email"),password=self._required(payload,"password"),session_hours=int(payload.get("session_hours",24))); self._ensure_chat_permissions(session.user_id); self.kernel.game.get_or_create_avatar(session.user_id); self._ensure_role_entitlement(self.kernel.identity.get_user(session.user_id)); self._send(HTTPStatus.OK,session); return
             if path == "/api/v1/auth/logout": self.kernel.identity.logout(self._bearer_token()); self._send(HTTPStatus.OK,{"logged_out":True}); return
             user=self._authenticated_user()
+            if path == "/api/v1/investment/proposal": self._send(HTTPStatus.CREATED,self.kernel.investment.propose(revenue_cents=int(payload.get("revenue_cents",0)),obligations_cents=int(payload.get("obligations_cents",0)),reserve_cents=int(payload.get("reserve_cents",0)))); return
+            if path == "/api/v1/investment/metals/validate":
+                evidence=payload.get("evidence",{})
+                if not isinstance(evidence,dict): raise ApiError(HTTPStatus.BAD_REQUEST,"evidence must be an object")
+                self._send(HTTPStatus.OK,self.kernel.investment.validate_metals_evidence(evidence)); return
             if path == "/api/v1/subscriptions/request": self._send(HTTPStatus.ACCEPTED,self.kernel.subscriptions.request(user.id,self._required(payload,"plan_id"))); return
             if path == "/api/v1/legal/acceptance":
                 documents=payload.get("documents")
