@@ -88,9 +88,9 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         try:
             path=urlparse(self.path).path; payload=self._read_json()
             if path == "/api/v1/auth/register":
-                user=self.kernel.identity.register(email=self._required(payload,"email"),password=self._required(payload,"password"),display_name=self._required(payload,"display_name")); self._ensure_chat_permissions(user.id); self.kernel.game.get_or_create_avatar(user.id); privileged_plan="owner" if "owner" in user.roles else "admin" if "admin" in user.roles else None; self.kernel.subscriptions.activate(user.id,privileged_plan,provider="neogen-role") if privileged_plan else self.kernel.subscriptions.ensure(user.id); self._send(HTTPStatus.CREATED,user); return
+                user=self.kernel.identity.register(email=self._required(payload,"email"),password=self._required(payload,"password"),display_name=self._required(payload,"display_name")); self._ensure_chat_permissions(user.id); self.kernel.game.get_or_create_avatar(user.id); self._ensure_role_entitlement(user); self._send(HTTPStatus.CREATED,user); return
             if path == "/api/v1/auth/login":
-                session=self.kernel.identity.authenticate(email=self._required(payload,"email"),password=self._required(payload,"password"),session_hours=int(payload.get("session_hours",24))); self._ensure_chat_permissions(session.user_id); self.kernel.game.get_or_create_avatar(session.user_id); self._send(HTTPStatus.OK,session); return
+                session=self.kernel.identity.authenticate(email=self._required(payload,"email"),password=self._required(payload,"password"),session_hours=int(payload.get("session_hours",24))); self._ensure_chat_permissions(session.user_id); self.kernel.game.get_or_create_avatar(session.user_id); self._ensure_role_entitlement(self.kernel.identity.get_user(session.user_id)); self._send(HTTPStatus.OK,session); return
             if path == "/api/v1/auth/logout": self.kernel.identity.logout(self._bearer_token()); self._send(HTTPStatus.OK,{"logged_out":True}); return
             user=self._authenticated_user()
             if path == "/api/v1/subscriptions/request": self._send(HTTPStatus.ACCEPTED,self.kernel.subscriptions.request(user.id,self._required(payload,"plan_id"))); return
@@ -187,6 +187,14 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         for scope in (PermissionScope.USE_MODELS,PermissionScope.USE_NETWORK):
             if not self.kernel.permissions.check(subject_id=user_id,scope=scope,resource="workspace:neogen").allowed:
                 self.kernel.permissions.grant(subject_id=user_id,scope=scope,resource="workspace:neogen",granted_by="system:chat-bootstrap")
+    def _ensure_role_entitlement(self,user)->None:
+        privileged_plan="owner" if "owner" in user.roles else "admin" if "admin" in user.roles else None
+        if privileged_plan:
+            current=self.kernel.subscriptions.current(user.id)["plan"].id
+            if current != privileged_plan:
+                self.kernel.subscriptions.activate(user.id,privileged_plan,provider="neogen-role")
+        else:
+            self.kernel.subscriptions.ensure(user.id)
     @staticmethod
     def _conversation_path(path:str,suffix:str)->str|None:
         prefix="/api/v1/conversations/"

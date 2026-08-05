@@ -225,6 +225,8 @@ class GuardedTabletWorkspaceTests(unittest.TestCase):
         self.assertIn('id: "emergency_recovery"', ability_catalog)
         self.assertIn("applyEntitlements", client)
         self.assertIn("loadSubscription", client)
+        self.assertIn("settingsLocalIdentity", client)
+        self.assertIn("Level 12 · Owner", client)
 
         styles = self.get_text("/assets/neogen.css")
         self.assertIn("Silica Matrix landing", styles)

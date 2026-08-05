@@ -66,6 +66,11 @@ Level 1 activates automatically; paid requests remain pending until an explicitl
 billing provider or an administrator confirms activation, so the interface never mistakes a plan
 selection for a completed charge.
 
+The default designated Owner Level 12 identity is `tonematrix689@gmail.com`. NeoGen assigns that
+account the `user`, `admin`, and `owner` roles on registration and reconciles an existing matching
+account at startup without changing its password. Deployments may override the binding with the
+server-side `NEOGEN_OWNER_EMAIL` environment variable; it must never be controlled by browser input.
+
 ## International legal and trust framework
 
 NeoGen ships a versioned legal centre covering Terms, privacy, AI transparency, acceptable use,

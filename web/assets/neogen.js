@@ -668,11 +668,15 @@
 
   function updateProfile() {
     const identity = state.localUser?.display_name || state.puterUser?.username || "NeoGen creator";
+    const roles = new Set(state.localUser?.roles || []);
+    const localRole = roles.has("owner") ? "Level 12 · Owner" : roles.has("admin") ? "Level 11 · Admin" : "Member";
     $("profileName").textContent = identity;
     $("profileAvatar").title = identity;
     $("profileMode").textContent = state.token ? "Puter + local Genesis" : "Puter cloud mode";
     $("settingsPuterIdentity").textContent = state.puterUser ? `Connected as @${state.puterUser.username}` : "Not connected";
     $("settingsPuterLogin").textContent = state.puterUser ? "Puter connected" : "Connect Puter";
+    $("settingsLocalIdentity").textContent = state.localUser?.email || "Not connected";
+    $("settingsLocalRole").textContent = state.localUser ? localRole : "Guest";
   }
 
   async function restorePuterIdentity() {
