@@ -397,6 +397,18 @@
               <div id="cloudFiles" class="cloud-list"></div>
               <div class="settings-row"><div><h3>Publish static client</h3><p>Publishes only the selected Puter directory after explicit confirmation. Local device capabilities stay local.</p></div><div style="display:flex;gap:8px"><input id="publishSubdomain" placeholder="neogen-yourname"><button id="publishPuter" class="ghost-button" data-ability="static_publish">Publish</button></div></div>
               <div class="settings-row"><div><h3>Approval policy</h3><p>File writes, terminal commands, Git mutations, and publishing remain exact, visible, and single-use.</p></div><span class="tag">Required</span></div>
+              <section class="settings-catalog owner-governance">
+                <div class="settings-catalog-head"><div><div class="eyebrow">Decision symbiosis</div><h2>Personal memory + risk-adaptive autonomy</h2><p>Record decisions you want VERA to remember. Outcomes improve advice; revocation removes a decision from active memory.</p></div><span id="symbiosisMode" class="tag">Owner controlled</span></div>
+                <div class="governance-grid">
+                  <div><input id="decisionStatement" placeholder="Decision or standing preference"><textarea id="decisionContext" rows="3" placeholder="Context and reason…"></textarea><button id="recordDecision" class="primary-button">Remember decision</button></div>
+                  <div><label for="riskScore">Proposed-action risk: <span id="riskScoreValue">30%</span></label><input id="riskScore" type="range" min="0" max="100" value="30"><div class="risk-flags"><label><input id="riskOthers" type="checkbox"> Affects others</label><label><input id="riskSensitive" type="checkbox"> Sensitive data</label><label><input id="riskIrreversible" type="checkbox"> Irreversible</label></div><button id="assessRisk" class="ghost-button">Assess autonomy</button><p id="riskResult" class="muted">VERA will adapt control to the assessed risk.</p></div>
+                </div><div id="decisionList" class="cloud-list"><span class="muted">No active decisions loaded.</span></div>
+              </section>
+              <section class="settings-catalog owner-governance">
+                <div class="settings-catalog-head"><div><div class="eyebrow">Regenerative mandate</div><h2>100% of distributable profit · four equal pillars</h2><p>Preview allocations only after obligations and required reserves. NeoGen never transfers funds.</p></div><span class="tag">Proposal only</span></div>
+                <div class="allocation-inputs"><input id="profitRevenue" type="number" min="0" step="0.01" placeholder="Revenue AUD"><input id="profitObligations" type="number" min="0" step="0.01" placeholder="Taxes, wages, refunds + costs AUD"><input id="profitReserve" type="number" min="0" step="0.01" placeholder="Required reserves AUD"><button id="previewAllocation" class="primary-button">Preview allocation</button></div>
+                <div id="allocationPreview" class="allocation-preview"><span class="muted">Enter audited figures to calculate a non-executable proposal.</span></div>
+              </section>
               <div class="settings-row"><div><h3>Attribution</h3><p>NeoGen uses user-authorized Puter infrastructure for cloud AI and persistence.</p></div><a class="ghost-button" href="https://developer.puter.com" target="_blank" rel="noreferrer" style="display:grid;place-items:center;text-decoration:none">Powered by Puter</a></div>
             </article>
           </div></div>

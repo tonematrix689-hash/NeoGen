@@ -746,6 +746,7 @@
     if (id === "afterlifeView") Promise.allSettled([loadAvatar(), loadEconomy()]);
     if (id === "pluginsView") loadCapabilities();
     if (id === "trainingView") loadTrainingLibrary();
+    if (id === "settingsView" && state.token) loadOwnerGovernance();
     if (id === "councilView") {
       if (!state.councilAgents.length) allocateCouncilSubjects(false);
       else renderCouncilAgents();
@@ -1710,6 +1711,46 @@
     } catch (error) { toast(error.message, true); }
   }
 
+  async function loadOwnerGovernance() {
+    try {
+      const [decisions, mandate] = await Promise.all([request("/guarded/symbiosis/decisions"), request("/investment/mandate")]);
+      const root = $("decisionList"); root.replaceChildren();
+      if (!decisions.items.length) root.innerHTML = '<span class="muted">No active decisions yet.</span>';
+      decisions.items.forEach((decision) => {
+        const row = document.createElement("div"); row.className = "cloud-item governance-decision";
+        const copy = document.createElement("div"); const title = document.createElement("strong"); title.textContent = decision.statement;
+        const detail = document.createElement("small"); detail.textContent = `${decision.context || "No context"} · confidence ${Math.round(decision.confidence * 100)}%${decision.outcome ? ` · outcome: ${decision.outcome}` : ""}`;
+        const revoke = document.createElement("button"); revoke.className = "ghost-button"; revoke.textContent = "Revoke";
+        revoke.onclick = async () => { await request("/guarded/symbiosis/decisions/update", { method: "POST", body: JSON.stringify({ decision_id: decision.id, revoke: true }) }); await loadOwnerGovernance(); };
+        copy.append(title, detail); row.append(copy, revoke); root.appendChild(row);
+      });
+      $("symbiosisMode").textContent = mandate.execution_enabled ? "Execution enabled" : "Owner controlled";
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function recordPersonalDecision() {
+    try {
+      await request("/guarded/symbiosis/decisions", { method: "POST", body: JSON.stringify({ statement: $("decisionStatement").value, context: $("decisionContext").value, confidence: 1 }) });
+      $("decisionStatement").value = ""; $("decisionContext").value = ""; await loadOwnerGovernance(); toast("Decision added to owner-scoped memory");
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function assessSymbiosisRisk() {
+    try {
+      const result = await request("/guarded/symbiosis/assess", { method: "POST", body: JSON.stringify({ risk: Number($("riskScore").value) / 100, affects_others: $("riskOthers").checked, sensitive: $("riskSensitive").checked, irreversible: $("riskIrreversible").checked }) });
+      $("riskResult").textContent = `${result.mode.replace("_", " ")} · ${Math.round(result.risk * 100)}% · ${result.reason}`;
+    } catch (error) { toast(error.message, true); }
+  }
+
+  async function previewProfitAllocation() {
+    const cents = (id) => Math.round(Number($(id).value || 0) * 100);
+    try {
+      const proposal = await request("/investment/proposal", { method: "POST", body: JSON.stringify({ revenue_cents: cents("profitRevenue"), obligations_cents: cents("profitObligations"), reserve_cents: cents("profitReserve") }) });
+      const labels = { renewable_energy: "Renewable energy", environmental_restoration: "Environmental restoration", sustainable_diverse_agriculture: "Sustainable agriculture", ethical_precious_metals_and_gems: "Ethical metals + gems" };
+      $("allocationPreview").replaceChildren(...Object.entries(proposal.allocations_cents).map(([key, value]) => { const card=document.createElement("div"); card.className="allocation-card"; const name=document.createElement("span"); name.textContent=labels[key]; const amount=document.createElement("strong"); amount.textContent=new Intl.NumberFormat("en-AU",{style:"currency",currency:"AUD"}).format(value/100); card.append(name,amount); return card; }));
+    } catch (error) { toast(error.message, true); }
+  }
+
   function renderForge() {
     const select = $("forgeAvatarSelect");
     const chosen = select.value || state.forgeAvatar?.id || state.forgeAvatars[0]?.id || "";
@@ -2399,6 +2440,10 @@
     });
     $("refreshDashboard").onclick = () => Promise.allSettled([loadDashboard(), loadHealth()]);
     $("saveAvatar").onclick = saveAvatar;
+    $("recordDecision").onclick = recordPersonalDecision;
+    $("riskScore").oninput = () => { $("riskScoreValue").textContent = `${$("riskScore").value}%`; };
+    $("assessRisk").onclick = assessSymbiosisRisk;
+    $("previewAllocation").onclick = previewProfitAllocation;
     $("createForgeAvatar").onclick = createForgeAvatar;
     $("forgeAvatarSelect").onchange = () => { state.forgeAvatar = state.forgeAvatars.find((avatar) => avatar.id === $("forgeAvatarSelect").value) || null; renderForge(); };
     $("designForgeLayer").onclick = designForgeLayer;
