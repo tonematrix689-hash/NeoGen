@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { listApprovedTasks, runApprovedTask } from './task-runner.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,7 +103,26 @@ function approved(req) {
 }
 
 async function handleApi(req, res, url) {
-  if (url.pathname === '/api/health') return sendJson(res, 200, { ok: true, service: 'NeoGen', version: '1.1.0', githubConfigured: Boolean(clientId && clientSecret), timestamp: new Date().toISOString() });
+  if (url.pathname === '/api/health') return sendJson(res, 200, {
+    ok: true,
+    service: 'NeoGen',
+    version: '1.2.0',
+    githubConfigured: Boolean(clientId && clientSecret),
+    approvedTasks: listApprovedTasks().map((task) => task.id),
+    timestamp: new Date().toISOString()
+  });
+
+  if (url.pathname === '/api/tasks' && req.method === 'GET') {
+    return sendJson(res, 200, { tasks: listApprovedTasks() });
+  }
+
+  if (url.pathname === '/api/tasks/run' && req.method === 'POST') {
+    if (!approved(req)) return sendJson(res, 428, { error: 'Explicit approval header required.' });
+    const body = await readJson(req);
+    if (!body.taskId) return sendJson(res, 400, { error: 'taskId is required.' });
+    const result = await runApprovedTask(body.taskId, __dirname);
+    return sendJson(res, result.ok ? 200 : 422, result);
+  }
 
   if (url.pathname === '/api/github/login') {
     if (!clientId || !clientSecret) return sendJson(res, 503, { error: 'GitHub OAuth is not configured. Add GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET to .env.' });
@@ -157,6 +177,7 @@ async function handleApi(req, res, url) {
     const { owner, name } = parseRepo(url.searchParams.get('repo'));
     const branch = url.searchParams.get('branch') || 'main';
     const filePath = url.searchParams.get('path');
+    if (!filePath) return sendJson(res, 400, { error: 'path is required.' });
     const data = await github(session.token, `/repos/${owner}/${name}/contents/${filePath.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(branch)}`);
     if (data.type !== 'file') return sendJson(res, 400, { error: 'Path is not a file.' });
     return sendJson(res, 200, { path: data.path, sha: data.sha, content: Buffer.from(data.content || '', 'base64').toString('utf8') });
