@@ -44,7 +44,12 @@ class LegalServiceTests(unittest.TestCase):
 
     def test_public_commerce_readiness_requires_operator_configuration(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(self.service.public_configuration()["ready_for_public_commerce"])
+            configuration = self.service.public_configuration()
+            self.assertFalse(configuration["ready_for_public_commerce"])
+            self.assertEqual(configuration["operator"]["operator_name"], "AVDigital One")
+            self.assertEqual(configuration["identity"]["product_name"], "NeoGen")
+            self.assertEqual(configuration["identity"]["ecosystem_name"], "The Metasphere")
+            self.assertNotIn("operator_name", configuration["missing_required_fields"])
         values = {variable: "configured" for variable in OPERATOR_ENVIRONMENT.values()}
         with patch.dict(os.environ, values, clear=True):
             self.assertTrue(self.service.public_configuration()["ready_for_public_commerce"])

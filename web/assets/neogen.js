@@ -40,7 +40,7 @@
     abilities: new Set(),
   };
 
-  const LEGAL_VERSION = "2026-08-05";
+  const LEGAL_VERSION = "2026-08-05.1";
   const MANDATORY_LEGAL_DOCUMENTS = {
     terms: LEGAL_VERSION,
     privacy: LEGAL_VERSION,

@@ -16,10 +16,10 @@
   </header>
   <main class="legal-shell">
     <section class="legal-hero">
-      <div class="eyebrow">Version 2026-08-05</div>
+      <div class="eyebrow">Version 2026-08-05.1</div>
       <h1>Trust is part of the system.</h1>
       <p>These notices explain NeoGen’s AI, permissions, privacy, subscriptions, safety, accessibility, and regional rights. They form an operational baseline, not a claim that one policy automatically satisfies every country.</p>
-      <div id="legalReadiness" class="legal-readiness"><strong>Public-commerce configuration pending</strong><span>The operator identity, contacts, hosting regions, governing law, and payment provider must be configured before paid public launch.</span></div>
+      <div id="legalReadiness" class="legal-readiness"><strong>AVDigital One operator identity recorded</strong><span>NeoGen operates through The Metasphere. The registered address, contacts, hosting regions, governing law, and payment provider remain required before paid public launch.</span></div>
     </section>
 
     <nav class="legal-nav" aria-label="Legal documents">
@@ -27,14 +27,14 @@
     </nav>
 
     <section id="terms" class="legal-section"><div><span>01</span><h2>Terms of Service</h2></div><article>
-      <p>NeoGen is an adult (18+) AI workspace and evolving Afterlife experience operated by the legal entity identified in deployment settings. Features depend on plan, location, Puter, connected providers, and the local Genesis runtime.</p>
+      <p>NeoGen is an adult (18+) AI workspace and evolving Afterlife experience operated by AVDigital One through The Metasphere, a decentralized global digital ecosystem. Worldwide availability remains subject to applicable local laws, restricted territories, providers, plans, devices, and the connected Genesis runtime.</p>
       <h3>AI and approvals</h3><p>Neo is AI, not a human or professional adviser. Output can be incomplete or wrong. Review and independently verify high-impact decisions. Writes, terminal commands, Git mutations, submissions, publishing, purchases, messages, and self-improvements remain bound to the exact, single-use approval shown to the user.</p>
       <h3>Your content</h3><p>You keep rights you hold in uploaded content and grant the operator only the licence needed to provide, secure, maintain, and improve the requested service. You must have authority to upload and process content, repositories, data, logos, and media. Generated content may not be unique and must be checked for rights, confidentiality, accuracy, and lawful use.</p>
       <h3>Rights that cannot be waived</h3><p>Nothing excludes mandatory consumer, privacy, accessibility, or other statutory rights. Liability, dispute, warranty, indemnity, and governing-law language must be localized and approved before commercial deployment; this framework does not silently invent those terms.</p>
     </article></section>
 
     <section id="privacy" class="legal-section"><div><span>02</span><h2>Privacy Notice</h2></div><article>
-      <p>NeoGen may process account and profile data, sessions, plan status, prompts and conversations, user-selected files and repository context, approvals and audit events, settings, security signals, support messages, and payment status returned by a provider. Card data must go directly to the configured payment provider.</p>
+      <p>AVDigital One is the operator and controller for NeoGen account, subscription, support, security, and product data it determines how to use. NeoGen may process account and profile data, sessions, plan status, prompts and conversations, user-selected files and repository context, approvals and audit events, settings, security signals, support messages, and payment status returned by a provider. Card data must go directly to the configured payment provider.</p>
       <h3>Why and where</h3><p>Processing supports the service contract, security, legal obligations, user consent where needed, and documented legitimate interests where available. User-selected prompts and content may be sent to Puter or another chosen model provider. NeoGen does not silently use private prompts or source code to train a foundation model.</p>
       <h3>Your control</h3><p>Depending on location, rights may include access/know, correction, deletion, restriction, objection, consent withdrawal, portability, sale/sharing or targeted-advertising opt-out, sensitive-use limitation, non-discrimination, and regulator complaint. Requests go to the configured privacy contact.</p>
       <h3>Transfers and retention</h3><p>Restricted transfers require a valid mechanism and risk assessment. The deployment must publish actual hosting regions, subprocessors, transfer safeguards, and a data-class retention schedule. No residency or deletion timing is promised unless the deployment enforces it.</p>
@@ -80,15 +80,22 @@
 
     <section class="legal-sources"><h2>Authoritative framework sources</h2><p><a href="https://eur-lex.europa.eu/eli/reg/2024/1689/oj/eng">EU AI Act</a> · <a href="https://commission.europa.eu/law/law-topic/data-protection_en">EU data protection</a> · <a href="https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/">UK ICO</a> · <a href="https://oag.ca.gov/privacy/ccpa">California CCPA</a> · <a href="https://www.ftc.gov/legal-library/browse/rules/childrens-online-privacy-protection-rule-coppa">FTC COPPA</a> · <a href="https://www.oaic.gov.au/privacy/australian-privacy-principles">Australian APPs</a> · <a href="https://www.priv.gc.ca/en/for-businesses/">Canada OPC</a> · <a href="https://www.gov.br/anpd/pt-br/acesso-a-informacao/institucional/atos-normativos/regulamentacoes_anpd">Brazil ANPD</a> · <a href="https://www.pdpc.gov.sg/data-protection-obligations">Singapore PDPC</a> · <a href="https://www.privacy.org.nz/responsibilities/your-obligations/">New Zealand Privacy Commissioner</a> · <a href="https://www.ppc.go.jp/en/legal/">Japan PPC</a> · <a href="https://www.w3.org/TR/WCAG22/">WCAG 2.2</a></p></section>
   </main>
-  <footer class="legal-footer"><span>NeoGen legal framework · 2026-08-05</span><a href="./">Return to NeoGen</a></footer>
+  <footer class="legal-footer"><span>NeoGen legal framework · 2026-08-05.1 · AVDigital One / The Metasphere</span><a href="./">Return to NeoGen</a></footer>
   <script>
     fetch("./api/v1/legal/catalog").then((response) => response.ok ? response.json() : null).then((data) => {
       const configuration = data && data.configuration;
-      if (!configuration || !configuration.ready_for_public_commerce) return;
+      if (!configuration) return;
       const node = document.getElementById("legalReadiness");
-      node.classList.add("ready");
-      node.querySelector("strong").textContent = `${configuration.operator.operator_name} legal configuration active`;
-      node.querySelector("span").textContent = `Governing law: ${configuration.operator.governing_law}. Privacy: ${configuration.operator.privacy_email}.`;
+      const operator = configuration.operator.operator_name || "AVDigital One";
+      if (configuration.ready_for_public_commerce) {
+        node.classList.add("ready");
+        node.querySelector("strong").textContent = `${operator} legal configuration active`;
+        node.querySelector("span").textContent = `Governing law: ${configuration.operator.governing_law}. Privacy: ${configuration.operator.privacy_email}.`;
+        return;
+      }
+      const missing = configuration.missing_required_fields.map((field) => field.replaceAll("_", " ")).join(", ");
+      node.querySelector("strong").textContent = `${operator} operator identity recorded`;
+      node.querySelector("span").textContent = `Public commerce remains gated pending: ${missing}.`;
     }).catch(() => {});
   </script>
 </body>

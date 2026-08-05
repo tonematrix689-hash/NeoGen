@@ -1,6 +1,7 @@
 # Regional Privacy and Consumer Notices
 
-Version and effective date: 2026-08-05
+Version: 2026-08-05.1
+Effective date: 2026-08-05
 
 ## European Economic Area
 

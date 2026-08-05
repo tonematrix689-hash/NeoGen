@@ -1,6 +1,7 @@
 # Data Processing Addendum and Subprocessor Framework
 
-Version and effective date: 2026-08-05
+Version: 2026-08-05.1
+Effective date: 2026-08-05
 
 This framework applies when a Business or Enterprise customer controls personal data processed by NeoGen on its behalf. A signed order form must identify the parties and prevail for commercial details.
 

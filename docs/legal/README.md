@@ -1,10 +1,10 @@
 # NeoGen international legal framework
 
-Version: 2026-08-05
+Version: 2026-08-05.1
 
-This directory is the operational legal baseline for NeoGen. It is designed for an adult, globally accessible, Puter-enabled AI workspace with optional subscriptions, local repository/terminal tools, user content, and an evolving Afterlife experience.
+This directory is the operational legal baseline for NeoGen, operated by AVDigital One through The Metasphere, a decentralized global digital ecosystem. It is designed for an adult, globally accessible, Puter-enabled AI workspace with optional subscriptions, local repository/terminal tools, user content, and an evolving Afterlife experience.
 
-It is not a claim that one document makes NeoGen lawful in every country. Applicability depends on the operator, users, processing, hosting, payment flow, marketing, and local deployment. The public-commerce gate remains **not ready** until every `NEOGEN_LEGAL_*` operator field is configured and qualified counsel approves the deployed texts.
+It is not a claim that one document makes NeoGen lawful in every country. Applicability depends on the operator, users, processing, hosting, payment flow, marketing, and local deployment. AVDigital One is now the disclosed operator name; its exact legal form, registration, registered/service address, jurisdiction, contacts, and the other required `NEOGEN_LEGAL_*` fields remain deployment requirements. The public-commerce gate remains **not ready** until those fields are configured and qualified counsel approves the deployed texts.
 
 ## Documents
 

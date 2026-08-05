@@ -1,10 +1,11 @@
 # Terms of Service
 
-Version and effective date: 2026-08-05
+Version: 2026-08-05.1
+Effective date: 2026-08-05
 
 ## Parties and eligibility
 
-These terms are between the configured NeoGen operator and each user. The operator's legal name, registered address, support contact, governing law, and required local representatives must be published before commercial launch. NeoGen is for people aged 18 or older who can form a binding contract. It is not directed to children.
+These terms are between AVDigital One, as the disclosed NeoGen operator, and each user. NeoGen operates through The Metasphere, a decentralized global digital ecosystem. AVDigital One's exact legal form, registration, registered/service address, jurisdiction, support contact, governing law, and required local representatives must be published before commercial launch. NeoGen is for people aged 18 or older who can form a binding contract. It is not directed to children.
 
 ## Service
 

@@ -25,7 +25,7 @@ class LegalDocument:
     mandatory: bool
 
 
-DOCUMENT_VERSION = "2026-08-05"
+DOCUMENT_VERSION = "2026-08-05.1"
 LEGAL_DOCUMENTS = (
     LegalDocument("terms", "Terms of Service", DOCUMENT_VERSION, "2026-08-05", "/legal.html#terms", True),
     LegalDocument("privacy", "Privacy Notice", DOCUMENT_VERSION, "2026-08-05", "/legal.html#privacy", True),
@@ -50,6 +50,16 @@ OPERATOR_ENVIRONMENT = {
     "data_hosting_regions": "NEOGEN_LEGAL_DATA_HOSTING_REGIONS",
 }
 
+OPERATOR_DEFAULTS = {
+    "operator_name": "AVDigital One",
+}
+
+PLATFORM_IDENTITY = {
+    "product_name": "NeoGen",
+    "ecosystem_name": "The Metasphere",
+    "operating_model": "decentralized global digital ecosystem",
+}
+
 
 class LegalService:
     """Expose current notices and preserve auditable, version-bound acceptance."""
@@ -65,10 +75,14 @@ class LegalService:
         return tuple(self._documents.values())
 
     def public_configuration(self) -> dict[str, Any]:
-        values = {field: os.environ.get(variable, "").strip() for field, variable in OPERATOR_ENVIRONMENT.items()}
+        values = {
+            field: os.environ.get(variable, "").strip() or OPERATOR_DEFAULTS.get(field, "")
+            for field, variable in OPERATOR_ENVIRONMENT.items()
+        }
         missing = [field for field, value in values.items() if not value]
         return {
             "operator": values,
+            "identity": dict(PLATFORM_IDENTITY),
             "ready_for_public_commerce": not missing,
             "missing_required_fields": missing,
             "minimum_age": 18,

@@ -1,10 +1,11 @@
 # Privacy Notice
 
-Version and effective date: 2026-08-05
+Version: 2026-08-05.1
+Effective date: 2026-08-05
 
 ## Controller and scope
 
-The configured NeoGen operator is the controller for account, subscription, support, security, and product data it determines how to use. A Business or Enterprise customer may be the controller and NeoGen its processor for customer-controlled workspace data. Puter and other connected providers may act as separate controllers or processors under their own notices and contracts.
+AVDigital One is the disclosed NeoGen operator and controller for account, subscription, support, security, and product data it determines how to use. NeoGen operates through The Metasphere, a decentralized global digital ecosystem. A Business or Enterprise customer may be the controller and NeoGen its processor for customer-controlled workspace data. Puter and other connected providers may act as separate controllers or processors under their own notices and contracts. AVDigital One's exact legal form, registration, registered/service address, jurisdiction, and privacy contact must be published before commercial launch.
 
 ## Data categories
 

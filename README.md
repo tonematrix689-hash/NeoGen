@@ -74,8 +74,10 @@ property/takedown, data processing, subprocessors, and regional notices. The API
 catalogue and records acceptance against exact mandatory-document versions. See
 [`docs/legal/README.md`](docs/legal/README.md) and the user-facing `web/legal.html`.
 
-The operator's identity, address, governing law, privacy/security/support contacts, payment provider,
-and actual hosting regions are mandatory deployment configuration. Until those fields are complete,
+AVDigital One is the disclosed NeoGen operator, and The Metasphere is the decentralized global digital
+ecosystem through which NeoGen operates. AVDigital One's exact legal form, registration, address,
+jurisdiction, governing law, privacy/security/support contacts, payment provider, and actual hosting
+regions are mandatory deployment configuration. Until those fields are complete,
 NeoGen reports that public commerce is not legally configured and paid plans remain pending. The
 framework is a compliance baseline and launch gate, not a substitute for qualified market-specific
 legal review.

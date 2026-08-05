@@ -1,10 +1,12 @@
 # International Launch Checklist
 
-Version: 2026-08-05
+Version: 2026-08-05.1
 
 ## Blocking operator configuration
 
-- [ ] Legal entity/operator name and registered address
+- [x] Operator name disclosed as AVDigital One
+- [x] Product and ecosystem relationship disclosed: NeoGen operates through The Metasphere
+- [ ] Exact legal form, registration number, jurisdiction, and registered/service address
 - [ ] Governing law and dispute terms approved for the first launch market
 - [ ] Support, privacy, security, and legal contacts
 - [ ] DPO, EU representative, UK representative, privacy officer, or local agent where required
