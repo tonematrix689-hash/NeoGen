@@ -13,7 +13,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from genesis.production import create_production_server
+from genesis.production import _positive_port, create_production_server
 
 
 class ProductionServerTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class ProductionServerTests(unittest.TestCase):
             os.environ,
             {
                 "HOST": "127.0.0.1",
-                "PORT": "8080",
+                "PORT": "0",
                 "NEOGEN_DATA_DIR": str(data),
                 "GENESIS_WORKSPACE_DIR": str(data / "workspace"),
                 "NEOGEN_HTTPS": "1",
@@ -32,11 +32,6 @@ class ProductionServerTests(unittest.TestCase):
             clear=False,
         )
         self.environment.start()
-        with patch.dict(os.environ, {"PORT": "8080"}):
-            self.server = create_production_server()
-        self.server.server_close()
-        # Bind an ephemeral test port after validating production configuration.
-        os.environ["PORT"] = "0"
         with patch("genesis.production._positive_port", return_value=0):
             self.server = create_production_server()
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -81,6 +76,12 @@ class ProductionServerTests(unittest.TestCase):
             page = response.read().decode("utf-8")
         self.assertIn("Neo Genesis Afterlife", page)
         self.assertIn("Enter NeoGen", page)
+
+    def test_port_validation(self) -> None:
+        self.assertEqual(_positive_port("8080"), 8080)
+        for invalid in ("0", "65536"):
+            with self.assertRaises(ValueError):
+                _positive_port(invalid)
 
 
 if __name__ == "__main__":
