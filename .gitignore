@@ -16,3 +16,6 @@ build/
 .genesis/
 work/
 outputs/
+neogen.db
+*.db-wal
+*.db-shm
