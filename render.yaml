@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: neogen
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/v1/health
+    autoDeployTrigger: checksPass
+    disk:
+      name: neogen-data
+      mountPath: /var/lib/neogen
+      sizeGB: 10
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 8080
+      - key: NEOGEN_DATA_DIR
+        value: /var/lib/neogen
+      - key: GENESIS_WORKSPACE_DIR
+        value: /var/lib/neogen/workspace
+      - key: NEOGEN_HTTPS
+        value: "1"
+      - key: NEOGEN_OWNER_EMAIL
+        sync: false
+      - key: NEOGEN_ALLOWED_ORIGINS
+        sync: false
+      - key: NEOGEN_OPERATOR_LEGAL_FORM
+        sync: false
+      - key: NEOGEN_OPERATOR_REGISTRATION
+        sync: false
+      - key: NEOGEN_OPERATOR_JURISDICTION
+        sync: false
+      - key: NEOGEN_OPERATOR_ADDRESS
+        sync: false
+      - key: NEOGEN_GOVERNING_LAW
+        sync: false
+      - key: NEOGEN_SUPPORT_EMAIL
+        sync: false
+      - key: NEOGEN_PRIVACY_EMAIL
+        sync: false
+      - key: NEOGEN_SECURITY_EMAIL
+        sync: false
+      - key: NEOGEN_HOSTING_REGIONS
+        sync: false
+      - key: NEOGEN_PAYMENT_PROVIDER
+        sync: false

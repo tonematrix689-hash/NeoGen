@@ -1,0 +1,6 @@
+Contact: mailto:security@YOUR-PRODUCTION-DOMAIN
+Expires: 2027-08-07T00:00:00Z
+Preferred-Languages: en
+Canonical: https://YOUR-PRODUCTION-DOMAIN/.well-known/security.txt
+Policy: https://YOUR-PRODUCTION-DOMAIN/legal.html#security
+Acknowledgments: https://YOUR-PRODUCTION-DOMAIN/legal.html#security
