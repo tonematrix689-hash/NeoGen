@@ -87,6 +87,45 @@ class ConversationService:
             )
         )
 
+    def rename(self, conversation_id: str, *, user_id: str, title: str) -> Conversation:
+        conversation = self.get(conversation_id, user_id=user_id)
+        updated = Conversation(
+            id=conversation.id,
+            user_id=conversation.user_id,
+            title=self._required(title, "title"),
+            created_at=conversation.created_at,
+            updated_at=datetime.now(timezone.utc),
+        )
+        current = self._store.get(self.conversation_namespace, conversation.id)
+        self._store.put(
+            self.conversation_namespace,
+            conversation.id,
+            self._conversation_payload(updated),
+            expected_version=current.version,
+        )
+        self._events.publish(
+            "ConversationRenamed",
+            source="neogen.vera",
+            payload={"conversation_id": conversation.id, "title": updated.title},
+            user_id=user_id,
+        )
+        return updated
+
+    def delete(self, conversation_id: str, *, user_id: str) -> Conversation:
+        conversation = self.get(conversation_id, user_id=user_id)
+        prefix = f"{conversation_id}:"
+        while records := self._store.list(self.message_namespace, prefix=prefix):
+            for record in records:
+                self._store.delete(self.message_namespace, record.key)
+        self._store.delete(self.conversation_namespace, conversation.id)
+        self._events.publish(
+            "ConversationDeleted",
+            source="neogen.vera",
+            payload={"conversation_id": conversation.id},
+            user_id=user_id,
+        )
+        return conversation
+
     def messages(self, conversation_id: str, *, user_id: str) -> tuple[Message, ...]:
         self.get(conversation_id, user_id=user_id)
         prefix = f"{conversation_id}:"
@@ -95,6 +134,29 @@ class ConversationService:
             for record in self._store.list(self.message_namespace, prefix=prefix)
         ]
         return tuple(sorted(messages, key=lambda item: item.created_at))
+
+    def search(self, *, user_id: str, query: str, limit: int = 20) -> tuple[dict[str, Any], ...]:
+        needle = self._required(query, "query").casefold()
+        if not 1 <= limit <= 100:
+            raise ConversationError("limit must be between 1 and 100")
+        owned = {item.id: item for item in self.list(user_id=user_id)}
+        matches: list[dict[str, Any]] = []
+        for record in self._store.list(self.message_namespace, limit=10_000):
+            message = self._message_from_payload(record.value)
+            conversation = owned.get(message.conversation_id)
+            if conversation is None or needle not in message.content.casefold():
+                continue
+            matches.append(
+                {
+                    "conversation_id": conversation.id,
+                    "conversation_title": conversation.title,
+                    "role": message.role,
+                    "content": message.content,
+                    "created_at": message.created_at,
+                }
+            )
+        matches.sort(key=lambda item: item["created_at"], reverse=True)
+        return tuple(matches[:limit])
 
     def add_message(
         self,

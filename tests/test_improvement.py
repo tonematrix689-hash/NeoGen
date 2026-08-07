@@ -40,9 +40,7 @@ class ImprovementServiceTests(unittest.IsolatedAsyncioTestCase):
         self.temporary.cleanup()
 
     def approve_plan(self, plan) -> None:
-        self.permissions.decide(plan.code_proposal.approval.id, approved=True)
-        for step in plan.verification_steps:
-            self.permissions.decide(step.approval.id, approved=True)
+        self.permissions.decide(plan.approval.id, approved=True)
 
     async def test_approved_improvement_edits_verifies_and_learns(self) -> None:
         source = self.root / "app.py"
@@ -101,11 +99,31 @@ class ImprovementServiceTests(unittest.IsolatedAsyncioTestCase):
             (CodeChange("app.py", "VALUE = 2\n", inspected.sha256),),
             ((sys.executable, "-c", "print('verify')"),),
         )
-        self.permissions.decide(plan.code_proposal.approval.id, approved=True)
-
-        with self.assertRaises(PermissionError):
+        with self.assertRaisesRegex(PermissionError, "Approval is not executable"):
             await self.improvement.execute(plan)
         self.assertEqual(source.read_text(encoding="utf-8"), "VALUE = 1\n")
+
+    async def test_one_bundle_approval_covers_edit_and_all_verification(self) -> None:
+        source = self.root / "app.py"
+        source.write_text("VALUE = 1\n", encoding="utf-8")
+        inspected = self.coding.read("app.py")
+        plan = self.improvement.prepare(
+            "neogen",
+            "Bundle the change and checks",
+            (CodeChange("app.py", "VALUE = 2\n", inspected.sha256),),
+            (
+                (sys.executable, "-c", "import app; assert app.VALUE == 2"),
+                (sys.executable, "-m", "compileall", "-q", "app.py"),
+            ),
+        )
+        self.assertEqual(len(self.permissions.pending("neogen")), 4)
+        self.permissions.decide(plan.approval.id, approved=True)
+
+        result = await self.improvement.execute(plan)
+
+        self.assertEqual(result.state, ImprovementState.SUCCEEDED)
+        self.assertEqual(len(result.verification_results), 2)
+        self.assertEqual(source.read_text(encoding="utf-8"), "VALUE = 2\n")
 
     async def test_recovery_does_not_overwrite_source_changed_during_verification(self) -> None:
         source = self.root / "app.py"

@@ -55,6 +55,47 @@ class MemoryTests(unittest.IsolatedAsyncioTestCase):
                 service.add_turn("neogen", "main", "owner", "invalid")
             await service.stop()
 
+    async def test_decision_memory_tracks_outcomes_revocation_and_owner_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = MemoryService(Path(temp_dir) / "memory.db")
+            await service.start()
+            decision = service.record_decision(
+                "owner:one", "Prefer reversible releases", context="NeoGen deployment", confidence=0.95
+            )
+            service.update_decision("owner:one", decision.id, outcome="Rollback completed cleanly")
+            self.assertEqual(service.decisions("owner:one")[0].outcome, "Rollback completed cleanly")
+            self.assertEqual(service.decisions("owner:two"), ())
+            service.update_decision("owner:one", decision.id, revoke=True)
+            self.assertEqual(service.decisions("owner:one"), ())
+            self.assertEqual(service.decisions("owner:one", include_revoked=True)[0].status, "revoked")
+            await service.stop()
+
+    async def test_autonomy_adapts_to_risk_and_impact(self) -> None:
+        self.assertEqual(MemoryService.assess_autonomy(0.1).mode, "observe")
+        self.assertEqual(MemoryService.assess_autonomy(0.3).mode, "advise")
+        prepared = MemoryService.assess_autonomy(0.5)
+        self.assertEqual(prepared.mode, "prepare")
+        self.assertTrue(prepared.approval_required)
+        human = MemoryService.assess_autonomy(0.3, irreversible=True, sensitive=True)
+        self.assertEqual(human.mode, "human_only")
+        self.assertTrue(human.approval_required)
+
+    async def test_memory_bounds_and_owner_scoped_forgetting(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = MemoryService(Path(temp_dir) / "memory.db")
+            await service.start()
+            service.remember("owner:one", "keep")
+            service.add_turn("owner:one", "chat", "user", "private")
+            service.record_decision("owner:one", "reversible releases")
+            service.remember("owner:two", "untouched")
+            with self.assertRaises(ValueError):
+                service.remember("owner:one", "x" * (service.max_memory_length + 1))
+            deleted = service.forget_project("owner:one")
+            self.assertEqual(sum(deleted.values()), 3)
+            self.assertEqual(service.search("owner:one", "keep"), ())
+            self.assertEqual(service.search("owner:two", "untouched")[0].content, "untouched")
+            await service.stop()
+
 
 if __name__ == "__main__":
     unittest.main()

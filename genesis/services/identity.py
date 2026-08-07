@@ -16,6 +16,9 @@ from .events import EventBus, EventSeverity
 from .storage import SQLiteStore, StorageError
 
 
+DEFAULT_OWNER_EMAIL = "tonematrix689@gmail.com"
+
+
 class IdentityError(RuntimeError):
     """Base identity error."""
 
@@ -47,9 +50,28 @@ class IdentityService:
     session_namespace = "identity.sessions"
     iterations = 310_000
 
-    def __init__(self, store: SQLiteStore, events: EventBus | None = None) -> None:
+    def __init__(
+        self,
+        store: SQLiteStore,
+        events: EventBus | None = None,
+        *,
+        owner_email: str | None = None,
+    ) -> None:
         self._store = store
         self._events = events or EventBus()
+        configured_owner = (
+            owner_email
+            if owner_email is not None
+            else os.environ.get("NEOGEN_OWNER_EMAIL", DEFAULT_OWNER_EMAIL)
+        )
+        self._owner_email = self._normalize_email(configured_owner)
+        self._reconcile_designated_owner()
+
+    @property
+    def owner_email(self) -> str:
+        """Return the server-configured identity assigned Owner Level 12."""
+
+        return self._owner_email
 
     def register(
         self,
@@ -72,7 +94,9 @@ class IdentityService:
         existing_users = self._store.list(self.user_namespace)
         assigned_roles = set(roles or ("user",))
         if not existing_users:
-            assigned_roles.update({"user", "admin"})
+            assigned_roles.update({"user", "admin", "owner"})
+        if normalized_email == self._owner_email:
+            assigned_roles.update({"user", "admin", "owner"})
 
         user_id = f"user:{uuid4()}"
         created_at = datetime.now(timezone.utc)
@@ -186,6 +210,49 @@ class IdentityService:
             "users": len(self._store.list(self.user_namespace)),
             "sessions": len(self._store.list(self.session_namespace)),
         }
+
+    def revoke_user_sessions(self, user_id: str, *, except_session_id: str | None = None) -> int:
+        """Revoke a user's sessions, supporting account recovery and compromise response."""
+
+        self.get_user(user_id)
+        revoked = 0
+        for record in self._store.list(self.session_namespace):
+            value = record.value
+            if value.get("user_id") != user_id or value.get("id") == except_session_id:
+                continue
+            self._store.delete(self.session_namespace, record.key)
+            revoked += 1
+        self._events.publish(
+            "UserSessionsRevoked",
+            source="neogen.identity",
+            severity=EventSeverity.WARNING,
+            payload={"user_id": user_id, "count": revoked},
+            user_id=user_id,
+        )
+        return revoked
+
+    def _reconcile_designated_owner(self) -> None:
+        """Promote an existing designated account without changing credentials."""
+
+        try:
+            index = self._store.get(self.email_namespace, self._owner_email).value
+            record = self._store.get(self.user_namespace, str(index["user_id"])).value
+        except (StorageError, KeyError):
+            return
+
+        roles = set(str(role) for role in record.get("roles", ()))
+        required = {"user", "admin", "owner"}
+        if required.issubset(roles):
+            return
+        roles.update(required)
+        record["roles"] = sorted(roles)
+        self._store.put(self.user_namespace, str(record["id"]), record)
+        self._events.publish(
+            "OwnerAssigned",
+            source="neogen.identity",
+            payload={"user_id": str(record["id"]), "email": self._owner_email},
+            user_id=str(record["id"]),
+        )
 
     def _authentication_failed(self, email: str) -> None:
         self._events.publish(

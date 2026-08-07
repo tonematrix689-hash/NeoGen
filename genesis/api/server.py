@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict, deque
 import json
+import os
+from threading import RLock
+import time
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
@@ -11,13 +15,15 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from genesis.services.conversations import ConversationError
 from genesis.services.game import GameError
 from genesis.services.identity import IdentityError
+from genesis.services.legal import LegalError
 from genesis.services.kernel import NeoGenKernel
 from genesis.services.permissions import PermissionScope
+from genesis.services.subscriptions import SubscriptionError
 from genesis.services.terminal import TerminalError
 from genesis.services.tools import ToolRequest
 from genesis.services.workspace import WorkspaceError
@@ -40,7 +46,11 @@ def _jsonable(value: Any) -> Any:
 
 class NeoGenApiHandler(BaseHTTPRequestHandler):
     kernel: NeoGenKernel
-    server_version = "NeoGenAPI/0.5"
+    server_version = "NeoGenAPI/0.6"
+    _rate_lock = RLock()
+    _auth_attempts: dict[str, deque[float]] = defaultdict(deque)
+    auth_attempt_limit = 8
+    auth_attempt_window = 60.0
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(HTTPStatus.NO_CONTENT); self._cors_headers(); self.end_headers()
@@ -51,14 +61,26 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             if path in {"/", "/api/v1"}:
                 self._send(HTTPStatus.OK, {"name":"NeoGen API","version":"v1","server":self.server_version}); return
             if path == "/api/v1/health": self._send(HTTPStatus.OK, self.kernel.health()); return
+            if path == "/api/v1/subscriptions/catalog": self._send(HTTPStatus.OK, {"items": self.kernel.subscriptions.catalog()}); return
+            if path == "/api/v1/legal/catalog": self._send(HTTPStatus.OK, {"items": self.kernel.legal.catalog(), "configuration": self.kernel.legal.public_configuration()}); return
+            if path == "/api/v1/investment/mandate": self._send(HTTPStatus.OK,self.kernel.investment.mandate()); return
             if path == "/api/v1/auth/me": self._send(HTTPStatus.OK, self._authenticated_user()); return
             user = self._authenticated_user()
+            if path == "/api/v1/cotd": self._send(HTTPStatus.OK,{"wallet":self.kernel.game.wallet(user.id),"terms":self.kernel.game.coin_terms()}); return
+            if path == "/api/v1/cotd/quote": self._send(HTTPStatus.OK,self.kernel.game.quote_coins(int(query.get("aud_cents",["0"])[0]))); return
+            if path == "/api/v1/forge/avatars": self._send(HTTPStatus.OK,{"items":self.kernel.game.forge_avatars(user.id),"layers":self.kernel.game.forge_layers,"max_rarity":self.kernel.game.max_rarity}); return
+            if path == "/api/v1/subscriptions/current": self._send(HTTPStatus.OK, self.kernel.subscriptions.current(user.id)); return
+            if path == "/api/v1/legal/status": self._send(HTTPStatus.OK, self.kernel.legal.current_acceptance(user.id)); return
             if path == "/api/v1/avatar": self._send(HTTPStatus.OK, self.kernel.game.get_or_create_avatar(user.id)); return
             if path == "/api/v1/inventory": self._send(HTTPStatus.OK, {"items": self.kernel.game.inventory(user.id)}); return
             if path == "/api/v1/wallet": self._send(HTTPStatus.OK, self.kernel.game.wallet(user.id)); return
             if path == "/api/v1/wallet/transactions": self._send(HTTPStatus.OK, {"items": self.kernel.game.transactions(user.id)}); return
             if path == "/api/v1/marketplace": self._send(HTTPStatus.OK, {"items": self.kernel.game.listings()}); return
             if path == "/api/v1/conversations": self._send(HTTPStatus.OK, {"items": self.kernel.conversations.list(user_id=user.id)}); return
+            if path == "/api/v1/conversations/search":
+                term=query.get("q",[""])[0]
+                if not term: raise ApiError(HTTPStatus.BAD_REQUEST,"q is required")
+                self._send(HTTPStatus.OK,{"items":self.kernel.conversations.search(user_id=user.id,query=term,limit=int(query.get("limit",["20"])[0]))}); return
             conversation_id = self._conversation_path(path, "/messages")
             if conversation_id:
                 self._send(HTTPStatus.OK, {"conversation": self.kernel.conversations.get(conversation_id,user_id=user.id),"items":self.kernel.conversations.messages(conversation_id,user_id=user.id)}); return
@@ -76,17 +98,37 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         except ApiError as exc: self._send(exc.status,{"error":str(exc)})
         except IdentityError as exc: self._send(HTTPStatus.UNAUTHORIZED,{"error":str(exc)})
         except (ConversationError,WorkspaceError,GameError) as exc: self._send(HTTPStatus.BAD_REQUEST,{"error":str(exc)})
-        except Exception as exc: self._send(HTTPStatus.INTERNAL_SERVER_ERROR,{"error":f"{type(exc).__name__}: {exc}"})
+        except Exception: self._send(HTTPStatus.INTERNAL_SERVER_ERROR,{"error":"Internal request failure"})
 
     def do_POST(self) -> None:  # noqa: N802
         try:
             path=urlparse(self.path).path; payload=self._read_json()
             if path == "/api/v1/auth/register":
-                user=self.kernel.identity.register(email=self._required(payload,"email"),password=self._required(payload,"password"),display_name=self._required(payload,"display_name")); self._ensure_chat_permissions(user.id); self.kernel.game.get_or_create_avatar(user.id); self._send(HTTPStatus.CREATED,user); return
+                self._check_auth_rate_limit()
+                user=self.kernel.identity.register(email=self._required(payload,"email"),password=self._required(payload,"password"),display_name=self._required(payload,"display_name")); self._ensure_chat_permissions(user.id); self.kernel.game.get_or_create_avatar(user.id); self._ensure_role_entitlement(user); self._send(HTTPStatus.CREATED,user); return
             if path == "/api/v1/auth/login":
-                session=self.kernel.identity.authenticate(email=self._required(payload,"email"),password=self._required(payload,"password"),session_hours=int(payload.get("session_hours",24))); self._ensure_chat_permissions(session.user_id); self.kernel.game.get_or_create_avatar(session.user_id); self._send(HTTPStatus.OK,session); return
+                self._check_auth_rate_limit()
+                session=self.kernel.identity.authenticate(email=self._required(payload,"email"),password=self._required(payload,"password"),session_hours=int(payload.get("session_hours",24))); self._ensure_chat_permissions(session.user_id); self.kernel.game.get_or_create_avatar(session.user_id); self._ensure_role_entitlement(self.kernel.identity.get_user(session.user_id)); self._send(HTTPStatus.OK,session); return
             if path == "/api/v1/auth/logout": self.kernel.identity.logout(self._bearer_token()); self._send(HTTPStatus.OK,{"logged_out":True}); return
             user=self._authenticated_user()
+            if path == "/api/v1/auth/revoke-sessions":
+                self._send(HTTPStatus.OK,{"revoked":self.kernel.identity.revoke_user_sessions(user.id)}); return
+            if path == "/api/v1/investment/proposal": self._send(HTTPStatus.CREATED,self.kernel.investment.propose(revenue_cents=int(payload.get("revenue_cents",0)),obligations_cents=int(payload.get("obligations_cents",0)),reserve_cents=int(payload.get("reserve_cents",0)))); return
+            if path == "/api/v1/investment/metals/validate":
+                evidence=payload.get("evidence",{})
+                if not isinstance(evidence,dict): raise ApiError(HTTPStatus.BAD_REQUEST,"evidence must be an object")
+                self._send(HTTPStatus.OK,self.kernel.investment.validate_metals_evidence(evidence)); return
+            if path == "/api/v1/subscriptions/request": self._send(HTTPStatus.ACCEPTED,self.kernel.subscriptions.request(user.id,self._required(payload,"plan_id"))); return
+            if path == "/api/v1/legal/acceptance":
+                documents=payload.get("documents")
+                if not isinstance(documents,dict): raise ApiError(HTTPStatus.BAD_REQUEST,"documents must be an object of document versions")
+                self._send(HTTPStatus.CREATED,self.kernel.legal.accept(user.id,documents,age_confirmed=bool(payload.get("age_confirmed")),locale=str(payload.get("locale", "")),source=str(payload.get("source", "web")))); return
+            if path == "/api/v1/subscriptions/activate":
+                if "admin" not in user.roles: raise ApiError(HTTPStatus.FORBIDDEN,"Admin role required")
+                target_id=str(payload.get("user_id") or user.id); plan_id=self._required(payload,"plan_id"); target=self.kernel.identity.get_user(target_id)
+                if plan_id == "owner" and ("owner" not in user.roles or "owner" not in target.roles): raise ApiError(HTTPStatus.FORBIDDEN,"Owner role required")
+                if plan_id == "admin" and "admin" not in target.roles: raise ApiError(HTTPStatus.FORBIDDEN,"Target user must have the admin role")
+                self._send(HTTPStatus.OK,self.kernel.subscriptions.activate(target_id,plan_id,provider=str(payload.get("provider") or "manual-admin"))); return
             if path == "/api/v1/avatar": self._send(HTTPStatus.OK,self.kernel.game.update_avatar(user.id,name=str(payload["name"]) if payload.get("name") is not None else None,appearance=dict(payload["appearance"]) if payload.get("appearance") is not None else None)); return
             if path == "/api/v1/inventory/grant":
                 if "admin" not in user.roles: raise ApiError(HTTPStatus.FORBIDDEN,"Admin role required")
@@ -96,6 +138,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
                 self._send(HTTPStatus.OK,self.kernel.game.credit(str(payload.get("user_id") or user.id),int(payload.get("amount",0)),reason=str(payload.get("reason","reward")))); return
             if path == "/api/v1/marketplace/list": self._send(HTTPStatus.CREATED,self.kernel.game.create_listing(user.id,name=self._required(payload,"name"),description=str(payload.get("description","")),price=int(payload.get("price",0)),item=dict(payload.get("item",{})))); return
             if path == "/api/v1/marketplace/purchase": self._send(HTTPStatus.OK,self.kernel.game.purchase(user.id,self._required(payload,"listing_id"))); return
+            if path == "/api/v1/forge/avatars": self._send(HTTPStatus.CREATED,self.kernel.game.create_forge_avatar(user.id,name=self._required(payload,"name"),prompt=self._required(payload,"prompt"))); return
             if path == "/api/v1/conversations": self._send(HTTPStatus.CREATED,self.kernel.conversations.create(user_id=user.id,title=str(payload.get("title","New conversation")))); return
             conversation_id=self._conversation_path(path,"/chat")
             if conversation_id:
@@ -119,8 +162,45 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
             raise ApiError(HTTPStatus.NOT_FOUND,"Endpoint not found")
         except ApiError as exc: self._send(exc.status,{"error":str(exc)})
         except IdentityError as exc: self._send(HTTPStatus.UNAUTHORIZED,{"error":str(exc)})
-        except (ConversationError,WorkspaceError,TerminalError,GameError) as exc: self._send(HTTPStatus.BAD_REQUEST,{"error":str(exc)})
-        except Exception as exc: self._send(HTTPStatus.BAD_REQUEST,{"error":f"{type(exc).__name__}: {exc}"})
+        except (ConversationError,WorkspaceError,TerminalError,GameError,SubscriptionError,LegalError) as exc: self._send(HTTPStatus.BAD_REQUEST,{"error":str(exc)})
+        except Exception: self._send(HTTPStatus.BAD_REQUEST,{"error":"Request could not be processed"})
+
+    def do_PATCH(self) -> None:  # noqa: N802
+        try:
+            path = urlparse(self.path).path
+            payload = self._read_json()
+            user = self._authenticated_user()
+            conversation_id = self._conversation_resource(path)
+            if conversation_id:
+                self._send(
+                    HTTPStatus.OK,
+                    self.kernel.conversations.rename(
+                        conversation_id,
+                        user_id=user.id,
+                        title=self._required(payload, "title"),
+                    ),
+                )
+                return
+            raise ApiError(HTTPStatus.NOT_FOUND, "Endpoint not found")
+        except ApiError as exc: self._send(exc.status, {"error": str(exc)})
+        except IdentityError as exc: self._send(HTTPStatus.UNAUTHORIZED, {"error": str(exc)})
+        except ConversationError as exc: self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except Exception: self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        try:
+            path = urlparse(self.path).path
+            user = self._authenticated_user()
+            conversation_id = self._conversation_resource(path)
+            if conversation_id:
+                deleted = self.kernel.conversations.delete(conversation_id, user_id=user.id)
+                self._send(HTTPStatus.OK, {"deleted": True, "conversation": deleted})
+                return
+            raise ApiError(HTTPStatus.NOT_FOUND, "Endpoint not found")
+        except ApiError as exc: self._send(exc.status, {"error": str(exc)})
+        except IdentityError as exc: self._send(HTTPStatus.UNAUTHORIZED, {"error": str(exc)})
+        except ConversationError as exc: self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except Exception: self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
 
     def log_message(self, format: str, *args: Any) -> None:
         self.kernel.events.publish("ApiRequest",source="neogen.api",payload={"client":self.client_address[0],"message":format % args})
@@ -133,11 +213,27 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         for scope in (PermissionScope.USE_MODELS,PermissionScope.USE_NETWORK):
             if not self.kernel.permissions.check(subject_id=user_id,scope=scope,resource="workspace:neogen").allowed:
                 self.kernel.permissions.grant(subject_id=user_id,scope=scope,resource="workspace:neogen",granted_by="system:chat-bootstrap")
+    def _ensure_role_entitlement(self,user)->None:
+        privileged_plan="owner" if "owner" in user.roles else "admin" if "admin" in user.roles else None
+        if privileged_plan:
+            current=self.kernel.subscriptions.current(user.id)["plan"].id
+            if current != privileged_plan:
+                self.kernel.subscriptions.activate(user.id,privileged_plan,provider="neogen-role")
+        else:
+            self.kernel.subscriptions.ensure(user.id)
     @staticmethod
     def _conversation_path(path:str,suffix:str)->str|None:
         prefix="/api/v1/conversations/"
         if not path.startswith(prefix) or not path.endswith(suffix): return None
-        return path[len(prefix):-len(suffix)].strip("/") or None
+        encoded = path[len(prefix):-len(suffix)].strip("/")
+        return unquote(encoded) or None
+    @staticmethod
+    def _conversation_resource(path: str) -> str | None:
+        prefix = "/api/v1/conversations/"
+        if not path.startswith(prefix): return None
+        encoded = path[len(prefix):].strip("/")
+        if not encoded or "/" in encoded: return None
+        return unquote(encoded)
     def _read_json(self)->dict[str,Any]:
         try: length=int(self.headers.get("Content-Length","0"))
         except ValueError as exc: raise ApiError(HTTPStatus.BAD_REQUEST,"Invalid Content-Length") from exc
@@ -148,9 +244,20 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
         if not isinstance(value,dict):raise ApiError(HTTPStatus.BAD_REQUEST,"Request body must be a JSON object")
         return value
     def _send(self,status:HTTPStatus,value:Any)->None:
-        body=json.dumps(_jsonable(value),separators=(",",":"),sort_keys=True).encode("utf-8");self.send_response(int(status));self.send_header("Content-Type","application/json; charset=utf-8");self.send_header("Content-Length",str(len(body)));self._cors_headers();self.end_headers();self.wfile.write(body)
+        body=json.dumps(_jsonable(value),separators=(",",":"),sort_keys=True).encode("utf-8");self.send_response(int(status));self.send_header("Content-Type","application/json; charset=utf-8");self.send_header("Content-Length",str(len(body)));self.send_header("Cache-Control","no-store");self.send_header("X-Content-Type-Options","nosniff");self.send_header("X-Frame-Options","DENY");self.send_header("Referrer-Policy","no-referrer");self.send_header("Content-Security-Policy","default-src 'none'; frame-ancestors 'none'");self._cors_headers();self.end_headers();self.wfile.write(body)
     def _cors_headers(self)->None:
-        self.send_header("Access-Control-Allow-Origin","*");self.send_header("Access-Control-Allow-Headers","Authorization, Content-Type");self.send_header("Access-Control-Allow-Methods","GET, POST, OPTIONS")
+        origin=self.headers.get("Origin","")
+        allowed={item.strip() for item in os.environ.get("NEOGEN_ALLOWED_ORIGINS","").split(",") if item.strip()}
+        if origin and origin in allowed:
+            self.send_header("Access-Control-Allow-Origin",origin);self.send_header("Vary","Origin")
+        self.send_header("Access-Control-Allow-Headers","Authorization, Content-Type");self.send_header("Access-Control-Allow-Methods","GET, POST, PATCH, DELETE, OPTIONS")
+    def _check_auth_rate_limit(self)->None:
+        key=self.client_address[0]; now=time.monotonic()
+        with self._rate_lock:
+            attempts=self._auth_attempts[key]
+            while attempts and now-attempts[0]>=self.auth_attempt_window: attempts.popleft()
+            if len(attempts)>=self.auth_attempt_limit: raise ApiError(HTTPStatus.TOO_MANY_REQUESTS,"Too many authentication attempts; try again later")
+            attempts.append(now)
     @staticmethod
     def _required(payload:dict[str,Any],field:str)->str:
         value=str(payload.get(field,"")).strip()
@@ -159,7 +266,7 @@ class NeoGenApiHandler(BaseHTTPRequestHandler):
 
 
 def create_server(*,host:str="127.0.0.1",port:int=8080,storage_path:str|Path="neogen.db",workspace_path:str|Path="workspace",enable_puter:bool=True)->ThreadingHTTPServer:
-    kernel=NeoGenKernel.build(storage_path=storage_path,workspace_path=workspace_path,enable_puter=enable_puter);handler=type("ConfiguredNeoGenApiHandler",(NeoGenApiHandler,),{"kernel":kernel});server=ThreadingHTTPServer((host,port),handler);server.daemon_threads=True;return server
+    kernel=NeoGenKernel.build(storage_path=storage_path,workspace_path=workspace_path,enable_puter=enable_puter);handler=type("ConfiguredNeoGenApiHandler",(NeoGenApiHandler,),{"kernel":kernel,"_auth_attempts":defaultdict(deque),"_rate_lock":RLock()});server=ThreadingHTTPServer((host,port),handler);server.daemon_threads=True;return server
 
 def main()->None:
     parser=argparse.ArgumentParser(description="Run the NeoGen REST API");parser.add_argument("--host",default="127.0.0.1");parser.add_argument("--port",type=int,default=8080);parser.add_argument("--db",default="neogen.db");parser.add_argument("--workspace",default="workspace");parser.add_argument("--disable-puter",action="store_true");args=parser.parse_args();server=create_server(host=args.host,port=args.port,storage_path=args.db,workspace_path=args.workspace,enable_puter=not args.disable_puter)

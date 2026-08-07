@@ -1,5 +1,11 @@
 # Genesis / Afterlife Neogenesis
 
+<p align="center"><img src="web/assets/neogen-logo.webp" alt="Neo Genesis Afterlife — hooded guardian and dragon crest" width="520"></p>
+
+The hooded guardian and dragon crest is NeoGen's primary project logo. Text-free application icons
+are generated from the same visual identity under `web/icons/` for browser, PWA, tablet, and
+maskable launcher use.
+
 Genesis is an AI operating system kernel built around services, capabilities, and applications.
 
 The kernel owns runtime startup, shutdown, logging, events, dependency injection, service discovery,
@@ -29,6 +35,64 @@ from bounded success/failure outcomes without storing prompts or code, ranks str
 inspectable online-learning score, and can improve an authorized app or its own selected source.
 Every diff and verification command requires approval; failed checks automatically restore the
 recovery checkpoint. See `docs/milestones/014-adaptive-self-improvement.md` for research and limits.
+
+The tablet client is Puter-first for browser identity, AI inference, cloud conversation backups,
+settings, and optional static hosting. It loads Puter.js v2 directly and does not require NeoGen to
+store a model-provider API key. Local repository writes and terminal commands deliberately remain
+behind the Genesis runtime: the browser requests a visible, exact-action approval and the runtime
+consumes that approval once. A Puter-hosted frontend therefore remains useful on its own for AI and
+cloud data, but it cannot silently acquire shell access to the user's device.
+
+The redesigned tablet experience uses a conversation-first interface with persistent local and
+Puter-backed history, dynamic model selection, responsive navigation, Monaco editing, repository
+inspection, command-center analytics, Academy, capability management, settings, and the expanding
+Afterlife world. The Neo composer exposes Puter chat and multimodal analysis, image and video
+generation, OCR, text-to-speech, transcription, and speech-to-speech conversion. Puter function
+calling can inspect NeoGen health, source, Git, and cloud files; any requested file write, terminal
+command, Git mutation, cloud note, or publication still pauses for visible exact-action approval.
+
+The Agent Council can attach a bounded, visible snapshot of the authorized Git checkout to every
+ten-specialist round. Later specialists cross-analyse the same repository evidence and shared
+transcript before the synthesis lead produces a decision. The result can be handed to Neo as a
+governed improvement proposal or saved under `docs/agent-council/`; source edits, verification,
+commits, pushes, and merges remain separate exact, single-use approvals.
+
+The public client now presents NeoGen through a silica-core visual system and a subscription
+catalogue with ten cumulative individual levels, role-assigned Admin Level 11 and Owner Level 12,
+plus Business and Enterprise plans. Every plan and ability remains visible in Settings, including
+locked and provider-dependent options, so users can understand the complete capability path. The backend
+persists active entitlements and pending plan requests without accepting payment credentials.
+Level 1 activates automatically; paid requests remain pending until an explicitly configured
+billing provider or an administrator confirms activation, so the interface never mistakes a plan
+selection for a completed charge.
+
+The default designated Owner Level 12 identity is `tonematrix689@gmail.com`. NeoGen assigns that
+account the `user`, `admin`, and `owner` roles on registration and reconciles an existing matching
+account at startup without changing its password. Deployments may override the binding with the
+server-side `NEOGEN_OWNER_EMAIL` environment variable; it must never be controlled by browser input.
+
+## International legal and trust framework
+
+NeoGen ships a versioned legal centre covering Terms, privacy, AI transparency, acceptable use,
+subscriptions and cancellations, cookies, accessibility, security, incident response, intellectual
+property/takedown, data processing, subprocessors, and regional notices. The API exposes the current
+catalogue and records acceptance against exact mandatory-document versions. See
+[`docs/legal/README.md`](docs/legal/README.md) and the user-facing `web/legal.html`.
+
+AVDigital One is the disclosed NeoGen operator, and The Metasphere is the decentralized global digital
+ecosystem through which NeoGen operates. AVDigital One's exact legal form, registration, address,
+jurisdiction, governing law, privacy/security/support contacts, payment provider, and actual hosting
+regions are mandatory deployment configuration. Until those fields are complete,
+NeoGen reports that public commerce is not legally configured and paid plans remain pending. The
+framework is a compliance baseline and launch gate, not a substitute for qualified market-specific
+legal review.
+
+When the configured workspace is a Git checkout, NeoGen also exposes repository status, history,
+diffs, branches, commits, fetches, pushes, merges, and other Git operations. Inspection is read-only;
+every Git mutation is executed without a command shell and requires a matching one-time approval.
+Remote operations use credentials already configured for Git on the device. Do not put GitHub
+tokens in `web/`, Puter KV, Puter Files, command arguments, or repository source. For hosted GitHub
+API operations, use a repository-scoped GitHub App with short-lived installation tokens.
 
 To point the composed workspace runtime at an authorized application checkout, set
 `GENESIS_WORKSPACE_DIR` to that repository. NeoGen stores memory and recovery checkpoints under
@@ -87,8 +151,8 @@ Available routes:
 - `/api/state` — demonstration player state
 - `/api/vera` — deterministic VERA guidance endpoint
 
-The MVP does not claim to be a hosted production service. Wallet balances and inventory are local
-demonstration data. Production AI routing, authentication, ACoin settlement, marketplace, 3D avatar
+The MVP does not claim to be a hosted production service. Coins of the Dead wallet balances and inventory are local
+demonstration data. The reference rate is 100 COTD per AUD 1, but payment, redemption, transfer, and blockchain settlement are disabled. Production AI routing, authentication, marketplace, 3D avatar
 tooling, and further RPG systems remain separate milestones.
 
 ## Test
@@ -129,3 +193,5 @@ NeoGen
     ├── Rewards
     └── Marketplace settlement
 ```
+
+Milestone 019 hardens memory and security boundaries: guarded self-editing is Owner-only, API CORS is deny-by-default, authentication is throttled, sessions can be revoked account-wide, unexpected errors are sanitized, and persistent memory has strict size, retrieval, and owner-scoped deletion controls. See `docs/milestones/019-memory-security-hardening.md`.

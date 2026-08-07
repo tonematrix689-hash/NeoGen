@@ -1,5 +1,5 @@
 """Persistent memory capability for Genesis."""
 
-from genesis.app.memory.service import ConversationTurn, MemoryRecord, MemoryService
+from genesis.app.memory.service import AutonomyAssessment, ConversationTurn, DecisionRecord, MemoryRecord, MemoryService
 
-__all__ = ["ConversationTurn", "MemoryRecord", "MemoryService"]
+__all__ = ["AutonomyAssessment", "ConversationTurn", "DecisionRecord", "MemoryRecord", "MemoryService"]

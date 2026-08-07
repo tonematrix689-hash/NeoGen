@@ -10,25 +10,302 @@ Then open:
 from __future__ import annotations
 
 import argparse
+import asyncio
+from collections import defaultdict, deque
+import json
 import mimetypes
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from threading import RLock
 from urllib.parse import unquote, urlparse
 
-from genesis.api.server import NeoGenApiHandler
+from genesis.api.server import ApiError, NeoGenApiHandler
+from genesis.app.composition import create_workspace_runtime
+from genesis.app.kernel import GenesisSettings
+from genesis.app.workspace import WorkspaceService
+from genesis.app.coding import CodeChange
 from genesis.services.kernel import NeoGenKernel
 
 
 class TabletHandler(NeoGenApiHandler):
     web_root: Path
+    guarded_workspace: WorkspaceService
+
+    def _owner(self):
+        user = self._authenticated_user()
+        if "owner" not in user.roles:
+            raise ApiError(HTTPStatus.FORBIDDEN, "Owner role required")
+        return user
 
     def do_GET(self) -> None:  # noqa: N802
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/api/v1/guarded/workspace":
+            try:
+                user = self._owner()
+                self._send(HTTPStatus.OK, self.guarded_workspace.snapshot(user.id))
+            except ApiError as exc:
+                self._send(exc.status, {"error": str(exc)})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
+            return
+        if path == "/api/v1/guarded/repository":
+            try:
+                self._owner()
+                self._send(HTTPStatus.OK, self.guarded_workspace.repository_snapshot())
+            except ApiError as exc:
+                self._send(exc.status, {"error": str(exc)})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
+            return
+        if path == "/api/v1/guarded/repository/status":
+            try:
+                self._owner()
+                self._send(
+                    HTTPStatus.OK,
+                    {
+                        "status": self.guarded_workspace.repository_status(),
+                        "log": self.guarded_workspace.repository_log(),
+                        "diff": self.guarded_workspace.repository_diff(),
+                    },
+                )
+            except ApiError as exc:
+                self._send(exc.status, {"error": str(exc)})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
+            return
+        if path == "/api/v1/guarded/code":
+            try:
+                self._owner()
+                self._send(HTTPStatus.OK, {"items": self.guarded_workspace.code_inventory()})
+            except ApiError as exc:
+                self._send(exc.status, {"error": str(exc)})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
+            return
+        if path == "/api/v1/guarded/code/read":
+            try:
+                self._owner()
+                query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
+                target = unquote(query.get("path", ""))
+                if not target:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "path is required")
+                self._send(HTTPStatus.OK, self.guarded_workspace.read_code(target))
+            except ApiError as exc:
+                self._send(exc.status, {"error": str(exc)})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
+            return
+        if path == "/api/v1/guarded/symbiosis/decisions":
+            try:
+                user = self._owner()
+                self._send(HTTPStatus.OK, {"items": self.guarded_workspace.decisions(user.id)})
+            except Exception:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": "Request could not be processed"})
+            return
         if path.startswith("/api/"):
             super().do_GET()
             return
         self._serve_static(path)
+
+    def do_POST(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path
+        if not path.startswith("/api/v1/guarded/"):
+            super().do_POST()
+            return
+        try:
+            user = self._owner()
+            payload = self._read_json()
+            project_id = user.id
+            if path == "/api/v1/guarded/symbiosis/decisions":
+                decision = self.guarded_workspace.record_decision(
+                    project_id, self._required(payload, "statement"),
+                    context=str(payload.get("context", "")), source="user",
+                    confidence=float(payload.get("confidence", 1.0)),
+                )
+                self._send(HTTPStatus.CREATED, decision)
+                return
+            if path == "/api/v1/guarded/symbiosis/decisions/update":
+                decision = self.guarded_workspace.update_decision(
+                    project_id, self._required(payload, "decision_id"),
+                    outcome=str(payload["outcome"]) if payload.get("outcome") is not None else None,
+                    revoke=bool(payload.get("revoke", False)),
+                )
+                self._send(HTTPStatus.OK, decision)
+                return
+            if path == "/api/v1/guarded/symbiosis/assess":
+                result = self.guarded_workspace.assess_autonomy(
+                    float(payload.get("risk", 0)),
+                    affects_others=bool(payload.get("affects_others", False)),
+                    irreversible=bool(payload.get("irreversible", False)),
+                    sensitive=bool(payload.get("sensitive", False)),
+                )
+                self._send(HTTPStatus.OK, result)
+                return
+            if path == "/api/v1/guarded/files/request-write":
+                request = self.guarded_workspace.request_file_write(
+                    project_id,
+                    self._required(payload, "path"),
+                    str(payload.get("content", "")),
+                )
+                self._send(HTTPStatus.ACCEPTED, request)
+                return
+            if path == "/api/v1/guarded/files/write":
+                result = self.guarded_workspace.write_file(
+                    project_id,
+                    self._required(payload, "path"),
+                    str(payload.get("content", "")),
+                    self._required(payload, "approval_id"),
+                )
+                self._send(HTTPStatus.OK, {"path": result})
+                return
+            if path == "/api/v1/guarded/forge/layers/request":
+                action = self._forge_layer_action(payload)
+                avatar = self.kernel.game.forge_avatar(user.id, self._required(payload, "avatar_id"))
+                cost = self.kernel.game.layer_cost(int(avatar["rarity_level"]), self._required(payload, "layer_type"))
+                request = self.guarded_workspace.permissions.request(
+                    project_id, "forge.layer", f"Spend {cost} COTD to forge the {payload['layer_type']} layer", action=action
+                )
+                self._send(HTTPStatus.ACCEPTED, request)
+                return
+            if path == "/api/v1/guarded/forge/layers/apply":
+                action = self._forge_layer_action(payload)
+                self.guarded_workspace.permissions.consume(
+                    self._required(payload, "approval_id"), project_id, "forge.layer", action=action
+                )
+                result = self.kernel.game.add_forge_layer(
+                    user.id, self._required(payload, "avatar_id"),
+                    layer_type=self._required(payload, "layer_type"),
+                    design_prompt=self._required(payload, "design_prompt"),
+                    abilities=tuple(payload.get("abilities", ())),
+                )
+                self._send(HTTPStatus.CREATED, result)
+                return
+            if path == "/api/v1/guarded/forge/upgrade/request":
+                avatar_id = self._required(payload, "avatar_id")
+                avatar = self.kernel.game.forge_avatar(user.id, avatar_id)
+                cost = self.kernel.game.rarity_upgrade_cost(int(avatar["rarity_level"]))
+                action = json.dumps({"avatar_id": avatar_id, "from": avatar["rarity_level"], "cost": cost}, sort_keys=True)
+                request = self.guarded_workspace.permissions.request(
+                    project_id, "forge.upgrade", f"Spend {cost} COTD to upgrade rarity {avatar['rarity_level']} → {int(avatar['rarity_level']) + 1}", action=action
+                )
+                self._send(HTTPStatus.ACCEPTED, request)
+                return
+            if path == "/api/v1/guarded/forge/upgrade/apply":
+                avatar_id = self._required(payload, "avatar_id")
+                avatar = self.kernel.game.forge_avatar(user.id, avatar_id)
+                cost = self.kernel.game.rarity_upgrade_cost(int(avatar["rarity_level"]))
+                action = json.dumps({"avatar_id": avatar_id, "from": avatar["rarity_level"], "cost": cost}, sort_keys=True)
+                self.guarded_workspace.permissions.consume(
+                    self._required(payload, "approval_id"), project_id, "forge.upgrade", action=action
+                )
+                self._send(HTTPStatus.OK, self.kernel.game.upgrade_forge_avatar(user.id, avatar_id))
+                return
+            if path == "/api/v1/guarded/improvements/prepare":
+                raw_changes = payload.get("changes")
+                raw_commands = payload.get("verification_commands")
+                if not isinstance(raw_changes, list) or not raw_changes:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "changes must be a non-empty list")
+                if not isinstance(raw_commands, list) or not raw_commands:
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "verification_commands must be a non-empty list")
+                changes = tuple(
+                    CodeChange(
+                        self._required(item, "path"),
+                        str(item.get("content", "")),
+                        self._required(item, "expected_sha256"),
+                    )
+                    for item in raw_changes
+                    if isinstance(item, dict)
+                )
+                commands = tuple(
+                    tuple(command)
+                    for command in raw_commands
+                    if isinstance(command, list) and command and all(isinstance(arg, str) for arg in command)
+                )
+                if len(changes) != len(raw_changes) or len(commands) != len(raw_commands):
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "Invalid change or verification command")
+                plan = self.guarded_workspace.prepare_improvement(
+                    project_id,
+                    self._required(payload, "goal"),
+                    changes,
+                    commands,
+                    strategy=str(payload.get("strategy", "vera-verified-edit")),
+                )
+                self._send(HTTPStatus.ACCEPTED, plan)
+                return
+            if path == "/api/v1/guarded/improvements/execute":
+                plan = self.guarded_workspace.improvement_plan(self._required(payload, "plan_id"))
+                if plan.project_id != project_id:
+                    raise ApiError(HTTPStatus.FORBIDDEN, "Improvement belongs to another user")
+                result = asyncio.run(self.guarded_workspace.execute_improvement(plan))
+                self._send(HTTPStatus.OK, result)
+                return
+            if path == "/api/v1/guarded/terminal/request":
+                command = payload.get("command")
+                if not isinstance(command, list) or not all(isinstance(item, str) for item in command):
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "command must be an argument list")
+                request = self.guarded_workspace.request_terminal(project_id, tuple(command))
+                self._send(HTTPStatus.ACCEPTED, request)
+                return
+            if path == "/api/v1/guarded/terminal/execute":
+                command = payload.get("command")
+                if not isinstance(command, list) or not all(isinstance(item, str) for item in command):
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "command must be an argument list")
+                result = asyncio.run(
+                    self.guarded_workspace.run_terminal(
+                        project_id,
+                        tuple(command),
+                        self._required(payload, "approval_id"),
+                    )
+                )
+                self._send(HTTPStatus.OK, result)
+                return
+            if path == "/api/v1/guarded/repository/request":
+                arguments = payload.get("arguments")
+                if not isinstance(arguments, list) or not all(
+                    isinstance(item, str) for item in arguments
+                ):
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "arguments must be a string list")
+                request = self.guarded_workspace.request_repository(
+                    project_id, tuple(arguments)
+                )
+                self._send(HTTPStatus.ACCEPTED, request)
+                return
+            if path == "/api/v1/guarded/repository/execute":
+                arguments = payload.get("arguments")
+                if not isinstance(arguments, list) or not all(
+                    isinstance(item, str) for item in arguments
+                ):
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "arguments must be a string list")
+                result = asyncio.run(
+                    self.guarded_workspace.run_repository(
+                        project_id,
+                        tuple(arguments),
+                        self._required(payload, "approval_id"),
+                    )
+                )
+                self._send(HTTPStatus.OK, result)
+                return
+            if path == "/api/v1/guarded/approvals/decide":
+                approved = payload.get("approved")
+                if not isinstance(approved, bool):
+                    raise ApiError(HTTPStatus.BAD_REQUEST, "approved must be a boolean")
+                current = self.guarded_workspace.permissions.require(
+                    self._required(payload, "approval_id")
+                )
+                if current.project_id != project_id:
+                    raise ApiError(HTTPStatus.FORBIDDEN, "Approval belongs to another user")
+                decided = self.guarded_workspace.permissions.decide(current.id, approved=approved)
+                self._send(HTTPStatus.OK, decided)
+                return
+            raise ApiError(HTTPStatus.NOT_FOUND, "Endpoint not found")
+        except ApiError as exc:
+            self._send(exc.status, {"error": str(exc)})
+        except (KeyError, PermissionError, ValueError) as exc:
+            self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except Exception:
+            self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "Internal request failure"})
 
     @staticmethod
     def _conversation_path(path: str, suffix: str) -> str | None:
@@ -37,6 +314,22 @@ class TabletHandler(NeoGenApiHandler):
             return None
         encoded = path[len(prefix):-len(suffix)].strip("/")
         return unquote(encoded) or None
+
+    @staticmethod
+    def _forge_layer_action(payload: dict[str, object]) -> str:
+        abilities = payload.get("abilities", [])
+        if not isinstance(abilities, list) or not all(isinstance(item, str) for item in abilities):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "abilities must be a string list")
+        return json.dumps(
+            {
+                "avatar_id": str(payload.get("avatar_id", "")),
+                "layer_type": str(payload.get("layer_type", "")),
+                "design_prompt": str(payload.get("design_prompt", "")),
+                "abilities": abilities,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     def _serve_static(self, request_path: str) -> None:
         relative = request_path.lstrip("/") or "index.html"
@@ -77,6 +370,9 @@ class TabletHandler(NeoGenApiHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store, max-age=0")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
         self.end_headers()
@@ -96,12 +392,28 @@ def create_tablet_server(
         workspace_path=workspace_path,
         enable_puter=True,
     )
+    storage = Path(storage_path).resolve()
+    guarded_runtime = create_workspace_runtime(
+        GenesisSettings(
+            data_dir=storage.parent / ".genesis",
+            workspace_dir=Path(workspace_path).resolve(),
+        )
+    )
+    asyncio.run(guarded_runtime.start())
+    guarded_workspace = guarded_runtime.container.resolve("workspace", WorkspaceService)
     root = Path(web_path) if web_path else Path(__file__).resolve().parent.parent / "web"
     root = root.resolve()
     handler = type(
         "ConfiguredTabletHandler",
         (TabletHandler,),
-        {"kernel": kernel, "web_root": root},
+        {
+            "kernel": kernel,
+            "web_root": root,
+            "guarded_runtime": guarded_runtime,
+            "guarded_workspace": guarded_workspace,
+            "_auth_attempts": defaultdict(deque),
+            "_rate_lock": RLock(),
+        },
     )
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
@@ -133,6 +445,7 @@ def main() -> None:
         server.shutdown()
         server.server_close()
         server.RequestHandlerClass.kernel.close()
+        asyncio.run(server.RequestHandlerClass.guarded_runtime.stop())
 
 
 if __name__ == "__main__":

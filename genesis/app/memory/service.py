@@ -33,8 +33,35 @@ class ConversationTurn:
     created_at: str
 
 
+@dataclass(frozen=True, slots=True)
+class DecisionRecord:
+    id: str
+    project_id: str
+    statement: str
+    context: str
+    source: str
+    confidence: float
+    status: str
+    outcome: str | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class AutonomyAssessment:
+    risk: float
+    mode: str
+    approval_required: bool
+    reason: str
+
+
 class MemoryService:
     """Durable, inspectable memory scoped by project and conversation."""
+
+    max_identifier_length = 256
+    max_memory_length = 32_000
+    max_turn_length = 128_000
+    max_decision_length = 8_000
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
@@ -43,7 +70,7 @@ class MemoryService:
 
     async def start(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.database_path)
+        connection = sqlite3.connect(self.database_path, check_same_thread=False)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode=WAL")
         connection.executescript(
@@ -67,6 +94,20 @@ class MemoryService:
             );
             CREATE INDEX IF NOT EXISTS idx_conversation_scope
                 ON conversation_turns(project_id, conversation_id, created_at);
+            CREATE TABLE IF NOT EXISTS personal_decisions (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                statement TEXT NOT NULL,
+                context TEXT NOT NULL,
+                source TEXT NOT NULL,
+                confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+                status TEXT NOT NULL CHECK(status IN ('active', 'superseded', 'revoked')),
+                outcome TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_personal_decisions_scope
+                ON personal_decisions(project_id, status, updated_at);
             """
         )
         connection.commit()
@@ -79,9 +120,9 @@ class MemoryService:
                 self._connection = None
 
     def remember(self, project_id: str, content: str, *, category: str = "general") -> MemoryRecord:
-        self._validate_text("project_id", project_id)
-        self._validate_text("content", content)
-        self._validate_text("category", category)
+        self._validate_text("project_id", project_id, maximum=self.max_identifier_length)
+        self._validate_text("content", content, maximum=self.max_memory_length)
+        self._validate_text("category", category, maximum=128)
         record = MemoryRecord(str(uuid4()), project_id, category, content, _now())
         with self._lock:
             connection = self._require_connection()
@@ -100,7 +141,10 @@ class MemoryService:
         content: str,
     ) -> ConversationTurn:
         for name, value in (("project_id", project_id), ("conversation_id", conversation_id), ("content", content)):
-            self._validate_text(name, value)
+            self._validate_text(
+                name, value,
+                maximum=self.max_turn_length if name == "content" else self.max_identifier_length,
+            )
         if role not in {"system", "user", "assistant", "tool"}:
             raise ValueError(f"Unsupported conversation role: {role}")
         turn = ConversationTurn(str(uuid4()), project_id, conversation_id, role, content, _now())
@@ -114,8 +158,10 @@ class MemoryService:
         return turn
 
     def conversation(self, project_id: str, conversation_id: str, *, limit: int = 100) -> tuple[ConversationTurn, ...]:
-        if limit < 1:
-            raise ValueError("limit must be positive")
+        self._validate_text("project_id", project_id, maximum=self.max_identifier_length)
+        self._validate_text("conversation_id", conversation_id, maximum=self.max_identifier_length)
+        if limit < 1 or limit > 500:
+            raise ValueError("limit must be between 1 and 500")
         with self._lock:
             rows = self._require_connection().execute(
                 """SELECT * FROM conversation_turns
@@ -126,9 +172,10 @@ class MemoryService:
         return tuple(self._turn(row) for row in reversed(rows))
 
     def search(self, project_id: str, query: str, *, limit: int = 20) -> tuple[MemoryRecord, ...]:
-        self._validate_text("query", query)
-        if limit < 1:
-            raise ValueError("limit must be positive")
+        self._validate_text("project_id", project_id, maximum=self.max_identifier_length)
+        self._validate_text("query", query, maximum=1_000)
+        if limit < 1 or limit > 100:
+            raise ValueError("limit must be between 1 and 100")
         escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         with self._lock:
             rows = self._require_connection().execute(
@@ -139,15 +186,116 @@ class MemoryService:
             ).fetchall()
         return tuple(self._memory(row) for row in rows)
 
+    def record_decision(
+        self, project_id: str, statement: str, *, context: str = "",
+        source: str = "user", confidence: float = 1.0,
+    ) -> DecisionRecord:
+        for name, value in (("project_id", project_id), ("statement", statement), ("source", source)):
+            self._validate_text(
+                name, value,
+                maximum=self.max_decision_length if name == "statement" else self.max_identifier_length,
+            )
+        if len(context) > self.max_decision_length:
+            raise ValueError(f"context exceeds {self.max_decision_length} characters")
+        confidence = float(confidence)
+        if not 0 <= confidence <= 1:
+            raise ValueError("confidence must be between 0 and 1")
+        now = _now()
+        decision = DecisionRecord(
+            str(uuid4()), project_id, statement.strip(), context.strip(), source.strip(),
+            confidence, "active", None, now, now,
+        )
+        with self._lock:
+            connection = self._require_connection()
+            connection.execute(
+                "INSERT INTO personal_decisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(decision.__dict__.values()) if hasattr(decision, "__dict__") else (
+                    decision.id, decision.project_id, decision.statement, decision.context,
+                    decision.source, decision.confidence, decision.status, decision.outcome,
+                    decision.created_at, decision.updated_at,
+                ),
+            )
+            connection.commit()
+        return decision
+
+    def decisions(self, project_id: str, *, include_revoked: bool = False) -> tuple[DecisionRecord, ...]:
+        self._validate_text("project_id", project_id, maximum=self.max_identifier_length)
+        clause = "" if include_revoked else " AND status != 'revoked'"
+        with self._lock:
+            rows = self._require_connection().execute(
+                f"SELECT * FROM personal_decisions WHERE project_id = ?{clause} ORDER BY updated_at DESC",
+                (project_id,),
+            ).fetchall()
+        return tuple(self._decision(row) for row in rows)
+
+    def update_decision(self, project_id: str, decision_id: str, *, outcome: str | None = None, revoke: bool = False) -> DecisionRecord:
+        self._validate_text("project_id", project_id, maximum=self.max_identifier_length)
+        self._validate_text("decision_id", decision_id, maximum=self.max_identifier_length)
+        if outcome is not None and len(outcome) > self.max_decision_length:
+            raise ValueError(f"outcome exceeds {self.max_decision_length} characters")
+        with self._lock:
+            connection = self._require_connection()
+            row = connection.execute(
+                "SELECT * FROM personal_decisions WHERE id = ? AND project_id = ?", (decision_id, project_id)
+            ).fetchone()
+            if row is None:
+                raise ValueError("decision not found")
+            status = "revoked" if revoke else row["status"]
+            clean_outcome = outcome.strip() if outcome is not None else row["outcome"]
+            connection.execute(
+                "UPDATE personal_decisions SET outcome = ?, status = ?, updated_at = ? WHERE id = ?",
+                (clean_outcome, status, _now(), decision_id),
+            )
+            connection.commit()
+            updated = connection.execute("SELECT * FROM personal_decisions WHERE id = ?", (decision_id,)).fetchone()
+        return self._decision(updated)
+
+    def forget_project(self, project_id: str) -> dict[str, int]:
+        """Delete one owner's memory atomically without affecting any other owner."""
+
+        self._validate_text("project_id", project_id, maximum=self.max_identifier_length)
+        tables = ("project_memory", "conversation_turns", "personal_decisions")
+        deleted: dict[str, int] = {}
+        with self._lock:
+            connection = self._require_connection()
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                for table in tables:
+                    cursor = connection.execute(f"DELETE FROM {table} WHERE project_id = ?", (project_id,))
+                    deleted[table] = max(0, cursor.rowcount)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return deleted
+
+    @staticmethod
+    def assess_autonomy(risk: float, *, affects_others: bool = False, irreversible: bool = False, sensitive: bool = False) -> AutonomyAssessment:
+        score = float(risk)
+        if not 0 <= score <= 1:
+            raise ValueError("risk must be between 0 and 1")
+        score = min(1.0, score + (0.2 if affects_others else 0) + (0.35 if irreversible else 0) + (0.25 if sensitive else 0))
+        if score < 0.2:
+            return AutonomyAssessment(score, "observe", False, "Record evidence without changing the user's world")
+        if score < 0.45:
+            return AutonomyAssessment(score, "advise", False, "Offer a recommendation; the user decides")
+        if score < 0.75:
+            return AutonomyAssessment(score, "prepare", True, "Prepare the exact action and request approval once")
+        return AutonomyAssessment(score, "human_only", True, "High-impact action requires explicit human control")
+
     def _require_connection(self) -> sqlite3.Connection:
         if self._connection is None:
             raise RuntimeError("Memory service is not started.")
         return self._connection
 
     @staticmethod
-    def _validate_text(name: str, value: str) -> None:
+    def _validate_text(name: str, value: str, *, maximum: int | None = None) -> None:
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be text")
         if not value or not value.strip():
             raise ValueError(f"{name} must not be empty")
+        if maximum is not None and len(value) > maximum:
+            raise ValueError(f"{name} exceeds {maximum} characters")
 
     @staticmethod
     def _memory(row: sqlite3.Row) -> MemoryRecord:
@@ -157,4 +305,11 @@ class MemoryService:
     def _turn(row: sqlite3.Row) -> ConversationTurn:
         return ConversationTurn(
             row["id"], row["project_id"], row["conversation_id"], row["role"], row["content"], row["created_at"]
+        )
+
+    @staticmethod
+    def _decision(row: sqlite3.Row) -> DecisionRecord:
+        return DecisionRecord(
+            row["id"], row["project_id"], row["statement"], row["context"], row["source"],
+            float(row["confidence"]), row["status"], row["outcome"], row["created_at"], row["updated_at"],
         )

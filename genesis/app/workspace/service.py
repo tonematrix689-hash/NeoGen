@@ -8,8 +8,9 @@ from genesis.app.coding import CodeChange, CodeFile, CodeFileSummary, CodePropos
 from genesis.app.improvement import ImprovementPlan, ImprovementResult, SelfImprovementService
 from genesis.app.kernel.registry import ServiceRegistry
 from genesis.app.learning import LearningService, OutcomeRecord, StrategyScore
-from genesis.app.memory import ConversationTurn, MemoryRecord, MemoryService
+from genesis.app.memory import AutonomyAssessment, ConversationTurn, DecisionRecord, MemoryRecord, MemoryService
 from genesis.app.research import ResearchResult, WebPage, WebResearchTool
+from genesis.app.repository import RepositoryResult, RepositoryService, RepositorySnapshot
 from genesis.app.security import ApprovalRequest, PermissionEngine
 from genesis.app.tools import TerminalResult, TerminalTool, WorkspaceFileTool
 
@@ -32,6 +33,7 @@ class WorkspaceService:
         terminal: TerminalTool,
         coding: CodeWorkspaceTool,
         research: WebResearchTool,
+        repository: RepositoryService,
         learning: LearningService,
         improvement: SelfImprovementService,
         registry: ServiceRegistry,
@@ -42,6 +44,7 @@ class WorkspaceService:
         self.terminal = terminal
         self.coding = coding
         self.research = research
+        self.repository = repository
         self.learning = learning
         self.improvement = improvement
         self.registry = registry
@@ -69,6 +72,18 @@ class WorkspaceService:
 
     def conversation(self, project_id: str, conversation_id: str) -> tuple[ConversationTurn, ...]:
         return self.memory.conversation(project_id, conversation_id)
+
+    def record_decision(self, project_id: str, statement: str, **kwargs: object) -> DecisionRecord:
+        return self.memory.record_decision(project_id, statement, **kwargs)
+
+    def decisions(self, project_id: str, *, include_revoked: bool = False) -> tuple[DecisionRecord, ...]:
+        return self.memory.decisions(project_id, include_revoked=include_revoked)
+
+    def update_decision(self, project_id: str, decision_id: str, **kwargs: object) -> DecisionRecord:
+        return self.memory.update_decision(project_id, decision_id, **kwargs)
+
+    def assess_autonomy(self, risk: float, **kwargs: bool) -> AutonomyAssessment:
+        return self.memory.assess_autonomy(risk, **kwargs)
 
     def request_file_write(self, project_id: str, relative_path: str, content: str) -> ApprovalRequest:
         return self.files.request_write(project_id, relative_path, content)
@@ -134,6 +149,31 @@ class WorkspaceService:
     async def web_read(self, project_id: str, url: str, approval_id: str) -> WebPage:
         return await self.research.read(project_id, url, approval_id)
 
+    def repository_snapshot(self) -> RepositorySnapshot:
+        return self.repository.snapshot()
+
+    def repository_status(self) -> str:
+        return self.repository.status()
+
+    def repository_diff(self, *paths: str) -> str:
+        return self.repository.diff(*paths)
+
+    def repository_log(self, *, limit: int = 25) -> str:
+        return self.repository.log(limit=limit)
+
+    def request_repository(
+        self, project_id: str, arguments: tuple[str, ...]
+    ) -> ApprovalRequest:
+        return self.repository.request(project_id, arguments)
+
+    async def run_repository(
+        self,
+        project_id: str,
+        arguments: tuple[str, ...],
+        approval_id: str,
+    ) -> RepositoryResult:
+        return await self.repository.run(project_id, arguments, approval_id)
+
     def record_learning_outcome(
         self,
         project_id: str,
@@ -176,3 +216,6 @@ class WorkspaceService:
 
     async def execute_improvement(self, plan: ImprovementPlan) -> ImprovementResult:
         return await self.improvement.execute(plan)
+
+    def improvement_plan(self, plan_id: str) -> ImprovementPlan:
+        return self.improvement.get(plan_id)
